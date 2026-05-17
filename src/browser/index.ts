@@ -275,6 +275,7 @@ async function collectChatGptUiWarnings(
         const selectors = [
           '[role="alert"]',
           '[role="status"]',
+          '[role="dialog"]',
           '[aria-live]',
           '[data-testid*="toast" i]',
           '[data-testid*="banner" i]',
@@ -302,11 +303,16 @@ async function collectChatGptUiWarnings(
         });
         const out = [];
         const seen = new Set();
-        const add = (entry) => {
+        const warningContainers = [];
+        const overlapsWarningContainer = (element) => warningContainers.some((container) => (
+          container !== element && (container.contains(element) || element.contains(container))
+        ));
+        const add = (element, entry) => {
           if (!entry.text || !warningPattern.test(entry.text)) return;
-          const key = entry.text + '|' + (entry.role || '') + '|' + (entry.ariaLive || '') + '|' + (entry.selector || '');
+          const key = entry.text + '|' + (entry.role || '') + '|' + (entry.ariaLive || '');
           if (seen.has(key)) return;
           seen.add(key);
+          warningContainers.push(element);
           out.push(entry);
         };
         for (const selector of selectors) {
@@ -317,7 +323,8 @@ async function collectChatGptUiWarnings(
             elements = [];
           }
           for (const element of elements) {
-            if (isVisible(element)) add(describe(element, 'selector', selector));
+            if (overlapsWarningContainer(element)) continue;
+            if (isVisible(element)) add(element, describe(element, 'selector', selector));
           }
         }
         const walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_ELEMENT);
@@ -326,8 +333,8 @@ async function collectChatGptUiWarnings(
           const element = node;
           if (isVisible(element) && !element.matches('textarea,input,[contenteditable="true"]')) {
             const text = (element.innerText || element.textContent || '').replace(/\\s+/g, ' ').trim();
-            if (text.length > 0 && text.length <= 500 && warningPattern.test(text)) {
-              add(describe(element, 'visible-warning-text'));
+            if (!overlapsWarningContainer(element) && text.length > 0 && text.length <= 500 && warningPattern.test(text)) {
+              add(element, describe(element, 'visible-warning-text'));
             }
           }
           node = walker.nextNode();
