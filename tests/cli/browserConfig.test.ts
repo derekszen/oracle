@@ -52,6 +52,18 @@ describe("buildBrowserConfig", () => {
     expect(config.archiveConversations).toBe("never");
   });
 
+  test("sets browser submit-only status and close-signal paths", async () => {
+    const config = await buildBrowserConfig({
+      model: "gpt-5.4-pro",
+      browserSubmitOnly: true,
+      browserSubmitStatus: "tmp/status.json",
+      browserSubmitCloseSignal: "tmp/close.signal",
+    });
+    expect(config.submitOnly).toBe(true);
+    expect(config.submitStatusPath).toMatch(/tmp\/status\.json$/);
+    expect(config.submitCloseSignalPath).toMatch(/tmp\/close\.signal$/);
+  });
+
   test("honors overrides and converts durations + booleans", async () => {
     const config = await buildBrowserConfig({
       model: "gpt-5.1",

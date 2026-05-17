@@ -77,6 +77,9 @@ export interface BrowserFlagOptions {
   browserThinkingTime?: ThinkingTimeLevel;
   browserResearch?: BrowserResearchMode;
   browserArchive?: BrowserArchiveMode;
+  browserSubmitOnly?: boolean;
+  browserSubmitStatus?: string;
+  browserSubmitCloseSignal?: string;
   browserModelLabel?: string;
   browserModelStrategy?: BrowserModelStrategy;
   browserAllowCookieErrors?: boolean;
@@ -232,6 +235,13 @@ export async function buildBrowserConfig(
     thinkingTime: options.browserThinkingTime,
     researchMode: options.browserResearch === "deep" ? "deep" : "off",
     archiveConversations: options.browserArchive,
+    submitOnly: options.browserSubmitOnly ? true : undefined,
+    submitStatusPath: options.browserSubmitStatus
+      ? path.resolve(options.browserSubmitStatus)
+      : undefined,
+    submitCloseSignalPath: options.browserSubmitCloseSignal
+      ? path.resolve(options.browserSubmitCloseSignal)
+      : undefined,
   };
 }
 

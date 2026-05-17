@@ -1,4 +1,4 @@
-import { mkdtemp, rm, mkdir } from "node:fs/promises";
+import { access, mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import net from "node:net";
@@ -169,6 +169,52 @@ function shouldSkipThinkingTimeSelection(
     normalized.includes("gpt 5.5 pro") ||
     normalized.includes("gpt 5 5 pro")
   );
+}
+
+async function waitForSubmitCloseSignal(
+  signalPath: string,
+  logger: BrowserLogger,
+): Promise<void> {
+  logger(`[browser] Submit-only tab waiting for close signal: ${signalPath}`);
+  for (;;) {
+    try {
+      await access(signalPath);
+      logger("[browser] Submit-only close signal received.");
+      return;
+    } catch {
+      await delay(250);
+    }
+  }
+}
+
+async function writeSubmitOnlyStatusFile(
+  statusPath: string | null | undefined,
+  status: Record<string, unknown>,
+): Promise<void> {
+  if (!statusPath) return;
+  const resolvedPath = path.resolve(statusPath);
+  await mkdir(path.dirname(resolvedPath), { recursive: true });
+  await writeFile(resolvedPath, `${JSON.stringify(status, null, 2)}\n`, "utf8");
+}
+
+async function waitForStableSubmitConversationUrl(
+  Runtime: ChromeClient["Runtime"],
+  logger: BrowserLogger,
+  timeoutMs = 45_000,
+): Promise<string | null> {
+  const deadline = Date.now() + timeoutMs;
+  let latestUrl: string | null = null;
+  while (Date.now() < deadline) {
+    latestUrl = await readConversationUrl(Runtime).catch(() => null);
+    if (latestUrl && isConversationUrl(latestUrl)) {
+      return latestUrl;
+    }
+    await delay(500);
+  }
+  logger(
+    `[browser] Submit-only did not observe a stable /c/ conversation URL before timeout; latest URL: ${latestUrl || "unknown"}`,
+  );
+  return null;
 }
 
 export function shouldSkipThinkingTimeSelectionForTest(
@@ -1164,6 +1210,68 @@ export async function runBrowserMode(options: BrowserRunOptions): Promise<Browse
       await releaseProfileLockIfHeld();
     }
     const imageArtifactMinTurnIndex = baselineTurns;
+    if (config.submitOnly) {
+      await updateConversationHint("submit-only", 15_000).catch(() => false);
+      const conversationUrl = await waitForStableSubmitConversationUrl(Runtime, logger);
+      const stableConversationUrl = Boolean(conversationUrl && isConversationUrl(conversationUrl));
+      if (stableConversationUrl && conversationUrl) {
+        lastUrl = conversationUrl;
+      }
+      const submittedAt = new Date().toISOString();
+      const conversationId = lastUrl ? extractConversationIdFromUrl(lastUrl) : undefined;
+      const status = {
+        schemaVersion: 1,
+        status: stableConversationUrl ? "submitted" : "submitted_without_conversation_url",
+        stableConversationUrl,
+        submittedAt,
+        sessionId: options.sessionId,
+        conversationUrl: lastUrl || null,
+        conversationId: conversationId ?? null,
+        chromePid: chrome.pid,
+        chromePort: chrome.port,
+        chromeHost,
+        chromeTargetId: lastTargetId ?? isolatedTargetId ?? null,
+        userDataDir,
+        baselineTurns,
+        promptChars: promptText.length,
+      };
+      await writeSubmitOnlyStatusFile(config.submitStatusPath, status);
+      logger("[browser] Submit-only prompt committed; skipping assistant response capture.");
+      if (config.submitCloseSignalPath) {
+        await raceWithDisconnect(
+          waitForSubmitCloseSignal(config.submitCloseSignalPath, logger),
+        );
+      }
+      runStatus = "complete";
+      const durationMs = Date.now() - startedAt;
+      answerText = "Submitted prompt only; no assistant response captured.";
+      answerMarkdown = lastUrl ? `${answerText}\n\nConversation: ${lastUrl}` : answerText;
+      return {
+        answerText,
+        answerMarkdown,
+        answerHtml: undefined,
+        artifacts: [],
+        archive: {
+          mode: config.archiveConversations,
+          attempted: false,
+          archived: false,
+          reason: "submit-only",
+          conversationUrl: lastUrl || undefined,
+        },
+        tookMs: durationMs,
+        answerTokens: 0,
+        answerChars: answerText.length,
+        chromePid: chrome.pid,
+        chromePort: chrome.port,
+        chromeHost,
+        chromeProfileRoot: userDataDir,
+        userDataDir,
+        chromeTargetId: lastTargetId ?? isolatedTargetId ?? undefined,
+        tabUrl: lastUrl,
+        conversationId,
+        controllerPid: process.pid,
+      };
+    }
     if (deepResearch) {
       await raceWithDisconnect(waitForResearchPlanAutoConfirm(Runtime, logger));
       const researchResult = await raceWithDisconnect(

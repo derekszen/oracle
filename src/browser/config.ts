@@ -65,6 +65,9 @@ export const DEFAULT_BROWSER_CONFIG: ResolvedBrowserConfig = {
   manualLoginCookieSync: false,
   researchMode: "off",
   archiveConversations: "auto",
+  submitOnly: false,
+  submitStatusPath: null,
+  submitCloseSignalPath: null,
 };
 
 export function resolveBrowserConfig(
@@ -157,6 +160,10 @@ export function resolveBrowserConfig(
     thinkingTime: config?.thinkingTime,
     researchMode,
     archiveConversations,
+    submitOnly: config?.submitOnly ?? DEFAULT_BROWSER_CONFIG.submitOnly,
+    submitStatusPath: config?.submitStatusPath ?? DEFAULT_BROWSER_CONFIG.submitStatusPath,
+    submitCloseSignalPath:
+      config?.submitCloseSignalPath ?? DEFAULT_BROWSER_CONFIG.submitCloseSignalPath,
     manualLogin,
     manualLoginProfileDir: manualLogin ? resolvedProfileDir : null,
     manualLoginCookieSync:

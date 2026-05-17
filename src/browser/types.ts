@@ -90,6 +90,12 @@ export interface BrowserAutomationConfig {
   researchMode?: BrowserResearchMode;
   /** Archive completed ChatGPT conversations after local artifacts are saved. */
   archiveConversations?: BrowserArchiveMode;
+  /** Browser-only: submit the prompt and exit without waiting for an assistant answer. */
+  submitOnly?: boolean;
+  /** Optional JSON status file written after submit-only prompt commit succeeds. */
+  submitStatusPath?: string | null;
+  /** Optional file path used to hold a submit-only tab open until the runner signals close. */
+  submitCloseSignalPath?: string | null;
 }
 
 export interface BrowserRunOptions {

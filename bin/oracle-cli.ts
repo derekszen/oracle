@@ -635,6 +635,24 @@ program
   )
   .addOption(
     new Option(
+      "--browser-submit-only",
+      "Submit the prompt in browser mode and exit without waiting for an assistant response.",
+    ).hideHelp(),
+  )
+  .addOption(
+    new Option(
+      "--browser-submit-status <file>",
+      "Write submit-only status JSON after the prompt is committed.",
+    ).hideHelp(),
+  )
+  .addOption(
+    new Option(
+      "--browser-submit-close-signal <file>",
+      "In submit-only mode, keep the owned tab open until this file exists.",
+    ).hideHelp(),
+  )
+  .addOption(
+    new Option(
       "--browser-follow-up <prompt>",
       "Submit an additional prompt in the same ChatGPT browser conversation after the initial answer; repeat for multi-turn consults.",
     )
