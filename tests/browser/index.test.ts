@@ -1,4 +1,6 @@
 import path from "node:path";
+import os from "node:os";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { describe, expect, test, vi } from "vitest";
 import {
   __test__,
@@ -9,7 +11,6 @@ import {
   resolveRemoteTabLeaseProfileDirForTest,
   runBrowserMode,
   runSubmissionWithRecoveryForTest,
-  shouldSkipThinkingTimeSelectionForTest,
   shouldPreferSystemTmpDirForTest,
   shouldPreserveBrowserOnErrorForTest,
 } from "../../src/browser/index.js";
@@ -71,18 +72,99 @@ describe("shouldPreserveBrowserOnErrorForTest", () => {
   });
 });
 
-describe("shouldSkipThinkingTimeSelectionForTest", () => {
-  test("treats GPT-5.5 Pro Extended as resolved by model selection", () => {
-    expect(shouldSkipThinkingTimeSelectionForTest("GPT-5.5 Pro", "extended")).toBe(true);
-    expect(shouldSkipThinkingTimeSelectionForTest("gpt-5.5-pro", "extended")).toBe(true);
+describe("browser run target cleanup", () => {
+  test("keeps the completed conversation tab when keepBrowser is enabled", () => {
+    expect(
+      __test__.shouldCloseOwnedRunTargetAfterRun({
+        runStatus: "complete",
+        ownsTarget: true,
+        keepBrowser: true,
+      }),
+    ).toBe(false);
   });
 
-  test("keeps explicit effort selection for non-Pro or non-extended requests", () => {
-    expect(shouldSkipThinkingTimeSelectionForTest("gpt-5.5", "heavy")).toBe(false);
-    expect(shouldSkipThinkingTimeSelectionForTest("GPT-5.5 Pro", "heavy")).toBe(false);
-    expect(shouldSkipThinkingTimeSelectionForTest("GPT-5.2", "extended")).toBe(false);
+  test("closes owned completed tabs by default", () => {
+    expect(
+      __test__.shouldCloseOwnedRunTargetAfterRun({
+        runStatus: "complete",
+        ownsTarget: true,
+        keepBrowser: false,
+      }),
+    ).toBe(true);
+  });
+
+  test("does not close attached or incomplete targets", () => {
+    expect(
+      __test__.shouldCloseOwnedRunTargetAfterRun({
+        runStatus: "complete",
+        ownsTarget: false,
+        keepBrowser: false,
+      }),
+    ).toBe(false);
+    expect(
+      __test__.shouldCloseOwnedRunTargetAfterRun({
+        runStatus: "attempted",
+        ownsTarget: true,
+        keepBrowser: false,
+      }),
+    ).toBe(false);
   });
 });
+
+describe("manual-login profile setup gate", () => {
+  test("fails fast for an uninitialized manual-login profile unless setup keeps Chrome open", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "oracle-empty-profile-"));
+    try {
+      await expect(
+        __test__.assertManualLoginProfileReadyForRun({
+          userDataDir: dir,
+          keepBrowser: false,
+        }),
+      ).rejects.toThrow(/private Chrome profile/i);
+
+      await expect(
+        __test__.assertManualLoginProfileReadyForRun({
+          userDataDir: dir,
+          keepBrowser: true,
+        }),
+      ).resolves.toBeUndefined();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("accepts an initialized manual-login Chrome profile", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "oracle-initialized-profile-"));
+    try {
+      await mkdir(path.join(dir, "Default"));
+      await expect(
+        __test__.assertManualLoginProfileReadyForRun({
+          userDataDir: dir,
+          keepBrowser: false,
+        }),
+      ).resolves.toBeUndefined();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("formats the first-time setup command with the selected profile", () => {
+    expect(__test__.formatManualLoginSetupCommand("/tmp/oracle profile")).toContain(
+      '--browser-manual-login-profile-dir "/tmp/oracle profile"',
+    );
+  });
+
+  test("caps non-setup manual-login waits so MCP callers fail fast", () => {
+    expect(__test__.resolveManualLoginWaitMs(20 * 60_000, false)).toBe(30_000);
+    expect(__test__.resolveManualLoginWaitMs(5_000, false)).toBe(5_000);
+    expect(__test__.resolveManualLoginWaitMs(20 * 60_000, true)).toBe(20 * 60_000);
+  });
+});
+
+// NOTE: shouldSkipThinkingTimeSelection was removed — it incorrectly assumed
+// that selecting "Pro" in the picker always implied Extended effort, which is
+// wrong for lower-tier plans where Pro defaults to Standard. The thinking time
+// step now always runs; ensureThinkingTime handles the already-selected case.
 
 describe("formatBrowserTurnTranscript", () => {
   test("keeps single-turn browser output unchanged", () => {

@@ -112,6 +112,18 @@ describe("summarizeModelRunsForConsult", () => {
     });
   });
 
+  test("defaults MCP browser consults to manual login on Windows", () => {
+    const config = buildConsultBrowserConfig({
+      userConfig: {},
+      env: {},
+      runModel: "gpt-5.5-pro",
+      inputModel: "gpt-5.5-pro",
+    });
+
+    expect(config.manualLogin).toBe(process.platform === "win32");
+    expect(config.cookieSync).toBe(process.platform !== "win32");
+  });
+
   test("lets explicit consult inputs override config defaults", () => {
     const config = buildConsultBrowserConfig({
       userConfig: {
@@ -157,6 +169,7 @@ describe("summarizeModelRunsForConsult", () => {
         file: ["README.md"],
         browserAttachments: "always",
         browserBundleFiles: true,
+        browserBundleFormat: "zip",
         browserFollowUps: ["challenge", "final"],
       },
       browserConfig: {
@@ -181,12 +194,18 @@ describe("summarizeModelRunsForConsult", () => {
         thinkingTime: "extended",
         attachments: "always",
         bundleFiles: true,
+        bundleFormat: "zip",
         profileDir: "/tmp/oracle-profile",
       },
     });
     expect(resolved.guidance.join("\n")).toContain("signed-in ChatGPT profile");
+    expect(resolved.guidance.join("\n")).toContain("private Chrome profile");
+    expect(resolved.guidance.join("\n")).toContain("--browser-keep-browser");
     expect(formatConsultDryRunResolved(resolved).join("\n")).toContain(
       "browser thinking time: extended",
+    );
+    expect(formatConsultDryRunResolved(resolved).join("\n")).toContain(
+      "browser bundle format: zip",
     );
   });
 
@@ -227,12 +246,41 @@ describe("summarizeModelRunsForConsult", () => {
         resolvedEngine: "browser",
         model: "gpt-5.5-pro",
         browser: expect.objectContaining({
-          desiredModel: "GPT-5.5 Pro",
+          desiredModel: "Pro",
           thinkingTime: "extended",
           modelStrategy: "select",
         }),
       },
     });
     expect(result.content[0]?.text).toContain("[dry-run] MCP resolved request:");
+  });
+
+  test("rejects unsupported consult fields instead of silently ignoring them", async () => {
+    const handlers: Array<(input: unknown) => Promise<unknown>> = [];
+    registerConsultTool({
+      registerTool: (_name: string, _def: unknown, fn: (input: unknown) => Promise<unknown>) => {
+        handlers.push(fn);
+      },
+      server: {
+        sendLoggingMessage: async () => undefined,
+      },
+    } as unknown as Parameters<typeof registerConsultTool>[0]);
+    const handler = handlers[0];
+    if (!handler) throw new Error("handler not registered");
+
+    const result = (await handler({
+      dryRun: true,
+      engine: "browser",
+      model: "gpt-5.5-pro",
+      prompt: "review this",
+      files: [],
+      run_in_background: true,
+    })) as {
+      isError?: boolean;
+      content: Array<{ type: "text"; text: string }>;
+    };
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain("run_in_background");
   });
 });

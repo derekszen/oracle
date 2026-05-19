@@ -90,7 +90,7 @@ Notes:
 - `--browser-chrome-profile`, `--browser-chrome-path`: cookie source + binary override (defaults to the standard `"Default"` Chrome profile so existing ChatGPT logins carry over).
 - `--browser-cookie-path`: explicit path to the Chrome/Chromium/Edge `Cookies` SQLite DB. Handy when you launch a fork via `--browser-chrome-path` and want to copy its session cookies; see [docs/chromium-forks.md](chromium-forks.md) for examples.
 - `--browser-attach-running`: attach to a local already-running browser instead of launching Chrome directly. Defaults to `127.0.0.1:9222`; combine with `--remote-chrome <host:port>` to use a different local attach hint.
-- `--chatgpt-url`: override the ChatGPT base URL. Works with the root homepage (`https://chatgpt.com/`) **or** a specific workspace/folder link such as `https://chatgpt.com/g/.../project`. `--browser-url` stays as a hidden alias.
+- `--chatgpt-url`: override the ChatGPT base URL. Works with the root homepage (`https://chatgpt.com/`), Temporary Chat (`https://chatgpt.com/?temporary-chat=true`), **or** a specific workspace/folder link such as `https://chatgpt.com/g/.../project`. `--browser-url` stays as a hidden alias.
 - `--browser-timeout`, `--browser-input-timeout`: `1200s (20m)`/`60s` defaults. Durations accept `ms`, `s`, `m`, or `h` and can be chained (`1h2m10s`).
 - `--browser-recheck-delay`, `--browser-recheck-timeout`: after an assistant timeout, wait the delay, revisit the conversation, and retry capture (default recheck timeout 120s). Useful for Pro runs that finish later.
 - `--browser-reuse-wait`: wait for a shared Chrome profile (DevToolsActivePort) to appear before launching a new Chrome. Helps multiple parallel runs reuse the same Chromium instance.
@@ -100,6 +100,7 @@ Notes:
 - `--heartbeat`: browser mode uses this interval to emit long-run ChatGPT status. When ChatGPT exposes a Thinking/Reasoning disclosure, Oracle opens it and logs only liveness metadata such as sidecar presence, UI progress percentage, elapsed time, and last-change age. It does not log the reasoning text.
 - If an assistant response still times out (common with long Pro runs), Oracle marks the session as an incomplete capture, stores reattach/runtime diagnostics, and keeps enough browser metadata for `oracle session <id>` to recover the final answer. Increase `--browser-timeout` only when the browser session is truly unrecoverable.
 - `--browser-model-strategy <select|current|ignore>`: control ChatGPT model selection. `select` (default) switches to the requested model; `current` keeps the active model and logs its label; `ignore` skips the picker entirely. (Ignored for Gemini web runs.)
+- Temporary Chat can reduce account-sidebar clutter for one-shot browser consults, but it is a different ChatGPT workflow: Oracle skips archive attempts there and the local transcript/artifacts are the durable record. Verify live behavior before relying on Project Sources, Deep Research reports, or multi-turn persistence.
 - `--browser-thinking-time <light|standard|extended|heavy>`: set the ChatGPT thinking-time intensity (Thinking/Pro models only). You can also set a default in `~/.oracle/config.json` via `browser.thinkingTime`.
 - `--browser-research deep`: activate ChatGPT Deep Research before submitting the prompt. Use this for broad public-web research and final cited reports, not as a replacement for GPT-5.x Pro Heavy code review or pure reasoning.
 - `--browser-follow-up <prompt>`: submit another prompt in the same ChatGPT conversation after the initial answer. Repeat the flag for multi-turn reviews such as “challenge your recommendation”, “compare against this constraint”, then “give the final decision”. Deep Research has its own report lifecycle, so browser follow-ups are rejected when `--browser-research deep` is enabled.
@@ -110,6 +111,7 @@ Notes:
 - `--browser-attachments <auto|never|always>`: control how `--file` inputs are delivered in browser mode. Default `auto` pastes file contents inline up to ~60k characters and switches to uploads above that.
 - `--browser-inline-files`: alias for `--browser-attachments never` (forces inline paste; never uploads attachments).
 - `--browser-bundle-files`: bundle all resolved attachments into a single temp file before uploading (only used when uploads are enabled/selected).
+- `--browser-bundle-format <text|zip>`: choose the bundle format. `text` keeps the existing single Markdown-style text bundle; `zip` preserves individual file names in one uploaded archive.
 - sqlite bindings: automatic rebuilds now require `ORACLE_ALLOW_SQLITE_REBUILD=1`. Without it, the CLI logs instructions instead of running `pnpm rebuild` on your behalf.
 - `--model`: the same flag used for API runs is accepted, but the ChatGPT automation path supports GPT-5.5, GPT-5.4, and GPT-5.2 variants. Use `gpt-5.5-pro`, `gpt-5.5`, `gpt-5.4-pro`, `gpt-5.4`, `gpt-5.2`, `gpt-5.2-thinking`, `gpt-5.2-instant`, or `gpt-5.2-pro`. Legacy Pro aliases still resolve to the latest Pro picker target.
 - Cookie sync is mandatory—if we can’t copy cookies from Chrome, the run exits early. By default Oracle copies a small ChatGPT auth/Cloudflare allowlist to avoid oversized request headers; use `--browser-cookie-names` only when you need to override that set. Use the hidden `--browser-allow-cookie-errors` flag only when you’re intentionally running logged out (it skips the early exit but still warns).
@@ -170,6 +172,34 @@ Completed browser sessions also save durable artifacts under `~/.oracle/sessions
 Browser mode keeps the local session as the source of truth, so Oracle can optionally archive the ChatGPT conversation after a successful run. The default `--browser-archive auto` archives only successful non-project, non-Deep-Research, non-multi-turn one-shot chats after `transcript.md`, generated artifacts, the final answer, and the conversation URL are saved locally.
 
 Oracle does not auto-archive failed, incomplete, running, project, Deep Research, or multi-turn sessions. Use `--browser-archive never` to disable archiving, or `--browser-archive always` when you explicitly want a successful browser conversation archived even outside the default one-shot policy. Archived chats are still visible and manageable from ChatGPT's own archive UI.
+
+### ChatGPT Project Sources
+
+ChatGPT Project Sources can act as explicit shared context for project workflows where chats should not implicitly share memory. This is especially useful with Developer Mode / Memory Off: separate chats do not see each other's conversation history, but they can read files attached to the Project Sources tab.
+
+Oracle exposes a narrow, non-destructive v1:
+
+```bash
+# Preview the upload plan without touching ChatGPT
+oracle project-sources add \
+  --chatgpt-url "https://chatgpt.com/g/g-p-example/project" \
+  --browser-manual-login \
+  --file docs/architecture.md \
+  --dry-run
+
+# List current sources
+oracle project-sources list \
+  --chatgpt-url "https://chatgpt.com/g/g-p-example/project" \
+  --browser-manual-login
+
+# Append files to the Sources tab
+oracle project-sources add \
+  --chatgpt-url "https://chatgpt.com/g/g-p-example/project" \
+  --browser-manual-login \
+  --file docs/architecture.md docs/decisions.md
+```
+
+This command uses browser automation but does not select a model, start a consult, or send a prompt. It only opens the Project Sources surface, lists existing files, or appends new files. Destructive operations such as delete, replace, and sync are intentionally left out until the UI path is safer and better covered by live tests.
 
 ### Multi-turn browser consults
 

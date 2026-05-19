@@ -1,6 +1,6 @@
 import path from "node:path";
 import fs from "node:fs/promises";
-import { createWriteStream } from "node:fs";
+import { createWriteStream, mkdirSync } from "node:fs";
 import type { WriteStream } from "node:fs";
 import net from "node:net";
 import type {
@@ -12,11 +12,15 @@ import type {
 } from "./browser/types.js";
 import type {
   TransportFailureReason,
+  ApiProviderMode,
   AzureOptions,
+  BrowserBundleFormat,
   ModelName,
+  PartialMode,
   ThinkingTimeLevel,
 } from "./oracle.js";
-import { DEFAULT_MODEL, formatElapsed } from "./oracle.js";
+import { DEFAULT_MODEL } from "./oracle/config.js";
+import { formatElapsed } from "./oracle/format.js";
 import { safeModelSlug } from "./oracle/modelResolver.js";
 import { getOracleHomeDir } from "./oracleHome.js";
 
@@ -90,6 +94,8 @@ export interface BrowserRuntimeMetadata {
   chromeTargetId?: string;
   tabUrl?: string;
   conversationId?: string;
+  /** True after Oracle has submitted the prompt to ChatGPT. */
+  promptSubmitted?: boolean;
   /** PID of the controller process that launched this browser run. Helps detect orphaned sessions. */
   controllerPid?: number;
 }
@@ -110,11 +116,37 @@ export interface BrowserHarvestMetadata {
   lastAssistantSnippet?: string;
 }
 
+export type BrowserModelSelectionEvidenceStatus =
+  | "already-selected"
+  | "switched"
+  | "switched-best-effort"
+  | "skipped"
+  | "unavailable";
+
+export interface BrowserModelSelectionEvidence {
+  requestedModel?: string | null;
+  resolvedLabel?: string | null;
+  strategy?: BrowserModelStrategy;
+  status: BrowserModelSelectionEvidenceStatus;
+  verified: boolean;
+  source: "chatgpt-model-picker" | "config";
+  capturedAt: string;
+}
+
+export interface BrowserRunWarning {
+  code: string;
+  severity: "warning";
+  message: string;
+  details?: Record<string, unknown>;
+}
+
 export interface BrowserMetadata {
   config?: BrowserSessionConfig;
   runtime?: BrowserRuntimeMetadata;
   harvest?: BrowserHarvestMetadata;
   archive?: BrowserArchiveResult;
+  modelSelection?: BrowserModelSelectionEvidence;
+  warnings?: BrowserRunWarning[];
 }
 
 export interface SessionArtifact {
@@ -168,13 +200,16 @@ export interface StoredRunOptions {
   browserAttachments?: "auto" | "never" | "always";
   browserInlineFiles?: boolean;
   browserBundleFiles?: boolean;
+  browserBundleFormat?: BrowserBundleFormat;
   background?: boolean;
   search?: boolean;
+  provider?: ApiProviderMode;
   baseUrl?: string;
   azure?: AzureOptions;
   effectiveModelId?: string;
   renderPlain?: boolean;
   writeOutputPath?: string;
+  partialMode?: PartialMode;
   timeoutSeconds?: number | "auto";
   httpTimeoutMs?: number;
   zombieTimeoutMs?: number;
@@ -217,9 +252,18 @@ export interface SessionMetadata {
   response?: SessionResponseMetadata;
   transport?: SessionTransportMetadata;
   error?: SessionUserErrorMetadata;
+  lifecycle?: SessionLifecycleMetadata;
 }
 
-export type SessionStatus = "pending" | "running" | "completed" | "error" | "cancelled";
+export type SessionStatus = "pending" | "running" | "completed" | "partial" | "error" | "cancelled";
+
+export interface SessionLifecycleMetadata {
+  engine: "api" | "browser";
+  execution: "foreground" | "background";
+  attached: boolean;
+  detached: boolean;
+  reattachCommand: string;
+}
 
 export interface SessionModelRun {
   model: string;
@@ -357,14 +401,26 @@ async function fileExists(targetPath: string): Promise<boolean> {
   }
 }
 
-async function ensureUniqueSessionId(baseSlug: string): Promise<string> {
+function isFileExistsError(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "EEXIST";
+}
+
+async function reserveUniqueSessionDir(baseSlug: string): Promise<string> {
   let candidate = baseSlug;
   let suffix = 2;
-  while (await fileExists(sessionDir(candidate))) {
+  for (;;) {
+    const dir = sessionDir(candidate);
+    try {
+      await fs.mkdir(dir, { recursive: false });
+      return candidate;
+    } catch (error) {
+      if (!isFileExistsError(error)) {
+        throw error;
+      }
+    }
     candidate = `${baseSlug}-${suffix}`;
     suffix += 1;
   }
-  return candidate;
 }
 
 async function listModelRunFiles(sessionId: string): Promise<SessionModelRun[]> {
@@ -442,9 +498,7 @@ export async function initializeSession(
   await ensureSessionStorage();
   const baseSlug =
     baseSlugOverride || createSessionId(options.prompt || DEFAULT_SLUG, options.slug);
-  const sessionId = await ensureUniqueSessionId(baseSlug);
-  const dir = sessionDir(sessionId);
-  await ensureDir(dir);
+  const sessionId = await reserveUniqueSessionDir(baseSlug);
   const mode = options.mode ?? "api";
   const browserConfig = options.browserConfig;
   const modelList: ModelName[] =
@@ -491,8 +545,10 @@ export async function initializeSession(
       browserAttachments: options.browserAttachments,
       browserInlineFiles: options.browserInlineFiles,
       browserBundleFiles: options.browserBundleFiles,
+      browserBundleFormat: options.browserBundleFormat,
       background: options.background,
       search: options.search,
+      provider: options.provider,
       baseUrl: options.baseUrl,
       azure: options.azure,
       timeoutSeconds: options.timeoutSeconds,
@@ -500,6 +556,7 @@ export async function initializeSession(
       zombieTimeoutMs: options.zombieTimeoutMs,
       zombieUseLastActivity: options.zombieUseLastActivity,
       writeOutputPath: options.writeOutputPath,
+      partialMode: options.partialMode,
       waitPreference: options.waitPreference,
       youtube: options.youtube,
       generateImage: options.generateImage,
@@ -532,11 +589,11 @@ export async function initializeSession(
 }
 
 export async function readSessionMetadata(sessionId: string): Promise<SessionMetadata | null> {
-  const modern = await readModernSessionMetadata(sessionId);
+  const modern = await readModernSessionMetadata(sessionId, { reconcile: true, persist: false });
   if (modern) {
     return modern;
   }
-  const legacy = await readLegacySessionMetadata(sessionId);
+  const legacy = await readLegacySessionMetadata(sessionId, { reconcile: true, persist: false });
   if (legacy) {
     return legacy;
   }
@@ -548,15 +605,23 @@ export async function updateSessionMetadata(
   updates: Partial<SessionMetadata>,
 ): Promise<SessionMetadata> {
   const existing =
-    (await readModernSessionMetadata(sessionId)) ??
-    (await readLegacySessionMetadata(sessionId)) ??
+    (await readModernSessionMetadata(sessionId, { reconcile: false, persist: false })) ??
+    (await readLegacySessionMetadata(sessionId, { reconcile: false, persist: false })) ??
     ({ id: sessionId } as SessionMetadata);
   const next = { ...existing, ...updates };
   await fs.writeFile(metaPath(sessionId), JSON.stringify(next, null, 2), "utf8");
   return next;
 }
 
-async function readModernSessionMetadata(sessionId: string): Promise<SessionMetadata | null> {
+interface ReadSessionMetadataOptions {
+  reconcile: boolean;
+  persist: boolean;
+}
+
+async function readModernSessionMetadata(
+  sessionId: string,
+  options: ReadSessionMetadataOptions,
+): Promise<SessionMetadata | null> {
   try {
     const raw = await fs.readFile(metaPath(sessionId), "utf8");
     const parsed = JSON.parse(raw) as SessionMetadata | StoredRunOptions;
@@ -564,23 +629,39 @@ async function readModernSessionMetadata(sessionId: string): Promise<SessionMeta
       return null;
     }
     const enriched = await attachModelRuns(parsed, sessionId);
-    const runtimeChecked = await markDeadBrowser(enriched, { persist: false });
-    return await markZombie(runtimeChecked, { persist: false });
+    return options.reconcile ? reconcileSessionMetadata(enriched, options) : enriched;
   } catch {
     return null;
   }
 }
 
-async function readLegacySessionMetadata(sessionId: string): Promise<SessionMetadata | null> {
+async function readLegacySessionMetadata(
+  sessionId: string,
+  options: ReadSessionMetadataOptions,
+): Promise<SessionMetadata | null> {
   try {
     const raw = await fs.readFile(legacySessionPath(sessionId), "utf8");
     const parsed = JSON.parse(raw) as SessionMetadata;
     const enriched = await attachModelRuns(parsed, sessionId);
-    const runtimeChecked = await markDeadBrowser(enriched, { persist: false });
-    return await markZombie(runtimeChecked, { persist: false });
+    return options.reconcile ? reconcileSessionMetadata(enriched, options) : enriched;
   } catch {
     return null;
   }
+}
+
+async function readRawSessionMetadata(sessionId: string): Promise<SessionMetadata | null> {
+  return (
+    (await readModernSessionMetadata(sessionId, { reconcile: false, persist: false })) ??
+    (await readLegacySessionMetadata(sessionId, { reconcile: false, persist: false }))
+  );
+}
+
+async function reconcileSessionMetadata(
+  meta: SessionMetadata,
+  { persist }: { persist: boolean },
+): Promise<SessionMetadata> {
+  const runtimeChecked = await markDeadBrowser(meta, { persist });
+  return await markZombie(runtimeChecked, { persist });
 }
 
 function isSessionMetadataRecord(value: unknown): value is SessionMetadata {
@@ -600,7 +681,7 @@ async function attachModelRuns(meta: SessionMetadata, sessionId: string): Promis
 export function createSessionLogWriter(sessionId: string, model?: string): SessionLogWriter {
   const targetPath = model ? modelLogPath(sessionId, model) : logPath(sessionId);
   if (model) {
-    void ensureDir(modelsDir(sessionId));
+    mkdirSync(modelsDir(sessionId), { recursive: true });
   }
   const stream = createWriteStream(targetPath, { flags: "a" });
   const logLine = (line = ""): void => {
@@ -618,10 +699,10 @@ export async function listSessionsMetadata(): Promise<SessionMetadata[]> {
   const entries = await fs.readdir(getSessionsDir()).catch(() => []);
   const metas: SessionMetadata[] = [];
   for (const entry of entries) {
-    let meta = await readSessionMetadata(entry);
+    let meta = await readRawSessionMetadata(entry);
     if (meta) {
-      meta = await markDeadBrowser(meta, { persist: true });
-      meta = await markZombie(meta, { persist: true }); // keep stored metadata consistent with zombie detection
+      // Keep stored metadata consistent with status reconciliation done by `oracle status`.
+      meta = await reconcileSessionMetadata(meta, { persist: true });
       metas.push(meta);
     }
   }
@@ -701,7 +782,7 @@ export async function readModelLog(sessionId: string, model: string): Promise<st
 }
 
 export async function readSessionRequest(sessionId: string): Promise<StoredRunOptions | null> {
-  const modern = await readModernSessionMetadata(sessionId);
+  const modern = await readModernSessionMetadata(sessionId, { reconcile: false, persist: false });
   if (modern?.options) {
     return modern.options;
   }

@@ -1,19 +1,91 @@
 # Changelog
 
-## 0.11.0 — Unreleased
+## 0.12.2 — Unreleased
+
+### Changed
+
+- Website: point package/homepage metadata and generated site chrome at `https://askoracle.sh` instead of the GitHub repository.
+
+## 0.12.1 — 2026-05-17
+
+### Changed
+
+- Docs: update the bundled Oracle skill for GPT-5.5 Pro and current provider/preflight/perf-trace guidance (#204). Thanks @TomBener!
+- Dependencies: update transitive fast-uri, hono, ip-address, express-rate-limit, and Vite to patched versions for Dependabot alerts (#205, #206, #207).
+- Dependencies: update Gemini, sweet-cookie, Puppeteer, Vitest, Inquirer, tsx, oxfmt/oxlint, DevTools Protocol, and related type/tooling packages (#209).
+- Dependencies: update the OpenAI SDK and TypeScript native preview.
+
+### Fixed
+
+- MCP: keep local mcporter smokes from failing when the optional Chrome DevTools browser endpoint env var is unset.
+- Sessions: allocate same-slug session directories atomically, recreate missing per-model log directories, and persist zombie/dead-browser status reconciliation from session listings.
+- API: share provider route resolution between doctor/preflight and runtime requests so route diagnostics match real execution.
+- CLI: rethrow sanitized multi-model provider failures without mutating or linking the raw provider error, keeping secrets out of logs and error chains.
+- Browser: mark Chrome disconnects before a recoverable ChatGPT conversation as errors instead of leaving sessions running for impossible reattach. Thanks @pdurlej!
+- Browser: fail closed when GPT-5.5 Pro Extended effort cannot be confirmed instead of silently submitting with the wrong or default effort. Thanks @pdurlej!
+- Release: write clean checksum files from `scripts/release.sh artifacts` without helper trace lines.
+
+## 0.12.0 — 2026-05-15
 
 ### Added
 
-- Browser: add `--browser-attach-running` to reuse a local already-running signed-in Chrome through Chrome's local remote-debugging toggle. Oracle opens a dedicated tab, stores attach metadata for reattach, and leaves the browser itself untouched. (#119) — thanks @dedene.
-- Browser: coordinate concurrent ChatGPT browser runs that share one manual-login profile with a tab lease registry, `--browser-max-concurrent-tabs`, stale lease cleanup, and shared Chrome discovery. (#150) — thanks @pdurlej.
-- Browser: add `--browser-research deep` / MCP `browserResearchMode: "deep"` for ChatGPT Deep Research browser runs, including progress monitoring, reattach recovery, and iframe report capture. (#151) — thanks @pdurlej.
-- Browser: save durable browser session artifacts, including transcripts, Deep Research reports, and ChatGPT-generated image files when downloadable image URLs are present. (#169) — thanks @pdurlej.
+- CLI: add `--perf-trace` / `--perf-trace-path` / `ORACLE_PERF_TRACE` startup timing traces and lazy-load heavy browser/provider/runtime modules to reduce time-to-first-output.
+- API: add `--allow-partial` / `--partial ok` for multi-model runs so advisory panels can exit 0 when at least one model succeeds, while still listing saved outputs and a JSON output manifest before failures.
+- API: classify common provider failures in multi-model summaries and metadata, including auth, expired keys, quota, rate limits, and unavailable models, with secret-safe recovery hints.
+- API: add root `--preflight` provider readiness checks and packed CLI help smoke coverage so stale installed help is caught before release.
+- Sessions: print and persist a compact lifecycle block showing foreground/background execution, detach state, model count, and reattach command.
+- Docs: add `oracle docs check` / `pnpm docs:check` to catch documented flags that are missing from Commander help metadata.
+- Docs: document provider preflight, route diagnostics, partial multi-model recovery, and output manifest workflows in README/provider docs.
+- API: add `--provider openai` / `--no-azure` to force first-party OpenAI when Azure env/config is present, add `oracle doctor --providers` and `--route` redacted route diagnostics, keep provider-qualified model IDs on OpenRouter/proxy routes instead of accidental Azure/native routes, and fail early when Azure routing lacks a deployment.
+- Browser/MCP: add opt-in ZIP formatting for bundled browser uploads with `--browser-bundle-format zip` / `browserBundleFormat: "zip"`, preserving individual file names in one ChatGPT attachment.
+
+### Fixed
+
+- CLI: make missing-prompt help exit nonzero, reject `--dry-run --render` like `--dry-run --render-markdown`, and terminate promptly with code 130 on SIGINT.
+- API: parse duration-style `--timeout` values such as `10m`, derive the HTTP transport timeout and stale-session cutoff from explicit overall timeouts, and warn when an explicit shorter `--http-timeout` can fail first.
+- Browser: select thinking effort from the currently checked ChatGPT model row so Pro Extended runs do not fall back to the Thinking row's effort control.
+- Browser: record ChatGPT model-selection evidence in session metadata and CLI output so Pro browser runs show the selected model proof (#195). Thanks @pdurlej!
+- Browser: target ChatGPT's renamed bare Pro picker row for Pro browser runs while keeping older Pro CLI aliases mapped to the current browser target (#190, fixes #182). Thanks @jungdaesuh!
+- Browser: recognize current ChatGPT attachment chips without treating stale page-level chips as ready, and keep the longer send-button wait scoped to attachment uploads (#192). Thanks @li-aolong!
+
+## 0.11.1 — 2026-05-10
+
+### Changed
+
+- Dependencies: update Google GenAI, OpenAI, Zod, Puppeteer, and developer tooling packages. (#187)
+
+### Fixed
+
+- Browser/MCP: avoid false ChatGPT login prompts when sidebar history starts with "Login..." and default MCP browser consults to manual login on Windows. (#189) — thanks @ndycode.
+- Browser/MCP: fail fast when a manual-login browser profile has not been initialized or signed in, and show first-time setup guidance for the private Oracle Chrome profile used by Claude/Codex MCP consults.
+- Browser: allow Pro model selection in ChatGPT Temporary Chat URLs and skip archive attempts for temporary conversations. (#185) — thanks @pdurlej.
+- Browser: recognize ChatGPT's renamed GPT-5.5 Pro/Thinking model labels and always apply requested thinking time instead of assuming Pro implies Extended. (#183, fixes #182) — thanks @broady.
+- CLI/Browser: expose `--max-file-size-bytes` on normal `oracle --file` runs, preserve the CLI override ahead of config/env defaults, and pass the raised cap through browser prompt assembly.
+- MCP: reject unknown `consult` fields instead of silently ignoring misspelled tool-call arguments. (#184) — thanks @pdurlej.
+
+### Docs
+
+- Website: highlight code blocks in the generated docs site.
+
+### CI
+
+- Install dependencies before building the docs site and update the Homebrew tap after releases.
+
+## 0.11.0 — 2026-05-07
+
+### Added
+
+- Browser/MCP: add non-destructive ChatGPT Project Sources management (`oracle project-sources list|add`, MCP `project_sources`) so Developer Mode workflows can share explicit project context through Sources. Addresses #131 and builds on #132 by @vgorlovi.
 - Browser: add repeatable `--browser-follow-up` prompts and MCP `browserFollowUps` for multi-turn ChatGPT browser consults in one conversation. (#170) — thanks @pdurlej.
 - Browser: add live ChatGPT tab inspection, `oracle status --browser-tabs`, browser session harvest/live-tail commands, and `--browser-tab <ref>` to reuse an existing ChatGPT tab by current tab, target id, URL, or title substring. (#126) — thanks @NathanSkene.
+- Browser: add `--browser-research deep` / MCP `browserResearchMode: "deep"` for ChatGPT Deep Research browser runs, including progress monitoring, reattach recovery, and iframe report capture. (#151) — thanks @pdurlej.
+- Browser: save durable browser session artifacts, including transcripts, Deep Research reports, and ChatGPT-generated image files when downloadable image URLs are present. (#169) — thanks @pdurlej.
 - Browser: add `--browser-archive` / MCP `browserArchive` to archive successful one-shot ChatGPT browser runs after local artifacts are saved. (#178) — thanks @pdurlej.
+- Browser: add `--browser-attach-running` to reuse a local already-running signed-in Chrome through Chrome's local remote-debugging toggle. Oracle opens a dedicated tab, stores attach metadata for reattach, and leaves the browser itself untouched. (#119) — thanks @dedene.
+- MCP: add the `chatgpt-pro-heavy` consult preset, MCP dry-runs, browser model strategy passthrough, and `oracle bridge claude-config --local-browser` for Claude Code + local ChatGPT Pro browser consults. (#149) — thanks @pdurlej.
+- Browser: coordinate concurrent ChatGPT browser runs that share one manual-login profile with a tab lease registry, `--browser-max-concurrent-tabs`, stale lease cleanup, and shared Chrome discovery. (#150) — thanks @pdurlej.
 - Browser: print a browser control plan before ChatGPT runs and dry-runs, and clean up leftover blank tabs after completed manual-profile runs. (#179) — thanks @pdurlej.
 - Browser: document multi-turn consult guardrails and make browser dry-runs explicit that Oracle only sends caller-provided follow-up prompts. (#180) — thanks @pdurlej.
-- MCP: add the `chatgpt-pro-heavy` consult preset, MCP dry-runs, browser model strategy passthrough, and `oracle bridge claude-config --local-browser` for Claude Code + local ChatGPT Pro browser consults. (#149) — thanks @pdurlej.
 
 ### Docs
 
@@ -26,9 +98,13 @@
 
 ### Fixed
 
-- Bridge: keep generated Codex/Claude MCP config snippets clean on stdout so redirecting `oracle bridge claude-config --local-browser > .mcp.json` produces valid JSON.
 - Browser/MCP: harden ChatGPT Pro browser consults with louder GPT-5.5 Pro selection validation, resolved MCP dry-run details, assistant-timeout diagnostics, incomplete-capture reattach metadata, and clean Pro Extended live-run metadata. (#177) — thanks @pdurlej.
 - Browser: clear stale ChatGPT composer drafts before initial browser submissions and ignore model-picker thinking-effort controls while scanning model rows. (#176) — thanks @oirehT.
+- Browser: keep the completed conversation tab open when `--browser-keep-browser` is set so `oracle status --browser-tabs`, harvest, and `--browser-tab current` can inspect/reuse it.
+- Browser: retry Chrome remote-debugging approval `403` responses for `--browser-attach-running` and report the actionable approval/toggle guidance instead of a raw websocket error.
+- Browser: fail fast when ChatGPT shows an account security block during Deep Research, instead of waiting until the research timeout.
+- Browser: strengthen live upload verification so smoke tests catch cases where ChatGPT accepts a file chip but cannot read the uploaded content.
+- Bridge: keep generated Codex/Claude MCP config snippets clean on stdout so redirecting `oracle bridge claude-config --local-browser > .mcp.json` produces valid JSON.
 - MCP: clarify `consult` engine defaults and add ChatGPT browser-mode recovery guidance to missing GPT API-key errors. (#172) — thanks @pdurlej.
 
 ## 0.10.0 — 2026-05-04

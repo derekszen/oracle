@@ -2,6 +2,8 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { createHighlighter } from "shiki";
+
 import { css, faviconSvg, js, preThemeScript, themeToggleHtml } from "./docs-site-assets.mjs";
 
 const root = process.cwd();
@@ -17,6 +19,11 @@ const productTagline = "Whisper your prompt to a mythical pro agent";
 const productDescription =
   "Oracle bundles your prompt and files so a Pro AI — GPT-5.5 Pro, Gemini 3 Pro, Claude Opus, and friends — can answer with real repository context. CLI, MCP, browser, and API in one tool.";
 const brewInstall = "brew install steipete/tap/oracle";
+const codeTheme = "github-dark-dimmed";
+const highlighter = await createHighlighter({
+  themes: [codeTheme],
+  langs: ["bash", "json", "json5", "powershell", "text"],
+});
 
 const sections = [
   ["Start", ["index.md", "install.md", "quickstart.md", "configuration.md"]],
@@ -111,7 +118,76 @@ copyStaticAsset("social-card.png");
 fs.writeFileSync(path.join(outDir, ".nojekyll"), "", "utf8");
 if (cname) fs.writeFileSync(path.join(outDir, "CNAME"), cname, "utf8");
 validateLinks(outDir);
+fs.writeFileSync(path.join(outDir, "llms.txt"), llmsTxt(), "utf8");
 console.log(`built docs site: ${path.relative(root, outDir)}`);
+
+function llmsTxt() {
+  const origin = docsOrigin();
+  const source = docsSourceUrl();
+  const name = typeof productName !== "undefined" ? productName : path.basename(root);
+  const description =
+    typeof productDescription !== "undefined" ? productDescription : `${name} documentation index.`;
+  const install = docsInstallHint();
+  const docPages = docsLlmsPages().map(
+    (page) => `- ${page.title}: ${pageUrl(origin, page.outRel)}`,
+  );
+  const lines = [`# ${name}`, "", description, "", "Canonical documentation:", ...docPages];
+  if (install) {
+    lines.push("", "Install:", `- ${install}`);
+  }
+  if (source) {
+    lines.push("", `Source: ${source}`);
+  }
+  lines.push(
+    "",
+    "Guidance for agents:",
+    "- Prefer the canonical documentation URLs above over README excerpts or package metadata.",
+    "- Fetch only the pages needed for the current task; this is an index, not a full-site corpus.",
+  );
+  return `${lines.join("\n")}\n`;
+}
+
+function docsLlmsPages() {
+  const seen = new Set();
+  const ordered = typeof orderedPages !== "undefined" ? orderedPages : [];
+  return [...ordered, ...pages].filter(
+    (page) => page.outRel && !seen.has(page.outRel) && seen.add(page.outRel),
+  );
+}
+
+function docsOrigin() {
+  const value =
+    (typeof siteBase !== "undefined" && siteBase) ||
+    (typeof siteUrl !== "undefined" && siteUrl) ||
+    (typeof customDomain !== "undefined" && customDomain ? `https://${customDomain}` : "");
+  return value.replace(/\/$/, "");
+}
+
+function docsSourceUrl() {
+  if (typeof repoBase !== "undefined") return repoBase;
+  if (typeof repoUrl !== "undefined") return repoUrl;
+  if (typeof repoEditBase !== "undefined")
+    return repoEditBase.replace(/\/edit\/main\/docs\/?$/, "");
+  return "";
+}
+
+function docsInstallHint() {
+  if (typeof installCommand !== "undefined") return installCommand;
+  if (typeof installLine !== "undefined") return installLine;
+  if (typeof installCmd !== "undefined") return installCmd;
+  if (typeof installSnippet !== "undefined") return installSnippet;
+  if (typeof brewInstall !== "undefined") return brewInstall;
+  return "";
+}
+
+function pageUrl(origin, outRel) {
+  const normalized =
+    outRel === "index.html"
+      ? ""
+      : outRel.replace(/(?:^|\/)index\.html$/, (match) => (match === "index.html" ? "" : "/"));
+  if (!origin) return normalized || "index.html";
+  return normalized ? `${origin}/${normalized}` : `${origin}/`;
+}
 
 function readCname() {
   for (const candidate of [path.join(docsDir, "CNAME"), path.join(root, "CNAME")]) {
@@ -249,9 +325,7 @@ function markdownToHtml(markdown, currentRel) {
       closeList();
       flushBlockquote();
       if (fence) {
-        html.push(
-          `<pre><code class="language-${escapeAttr(fence.lang)}">${escapeHtml(fence.lines.join("\n"))}</code></pre>`,
-        );
+        html.push(renderCodeBlock(fence.lang, fence.lines.join("\n")));
         fence = null;
       } else {
         fence = { lang: fenceMatch[1] || "text", lines: [] };
@@ -350,6 +424,26 @@ function markdownToHtml(markdown, currentRel) {
   closeList();
   flushBlockquote();
   return html.join("\n");
+}
+
+function renderCodeBlock(lang, code) {
+  const normalizedLang = normalizeCodeLang(lang);
+  const highlighted = highlighter.codeToHtml(code, { lang: normalizedLang, theme: codeTheme });
+  return highlighted
+    .replace(
+      /<pre class="shiki ([^"]+)" style="[^"]*" tabindex="0">/,
+      `<pre class="shiki $1" style="background-color:var(--code-bg);color:var(--code-fg)" tabindex="0"><code class="language-${escapeAttr(normalizedLang)}">`,
+    )
+    .replace("<code>", "")
+    .replace("</code></pre>", "</code></pre>");
+}
+
+function normalizeCodeLang(lang) {
+  const normalized = String(lang || "text").toLowerCase();
+  if (normalized === "sh" || normalized === "shell" || normalized === "zsh") return "bash";
+  if (normalized === "ps1" || normalized === "pwsh") return "powershell";
+  if (highlighter.getLoadedLanguages().includes(normalized)) return normalized;
+  return "text";
 }
 
 function inline(text, currentRel) {
@@ -527,7 +621,7 @@ function layout({ page, html, toc, prev, next, sectionName }) {
       <div class="sidebar-head">
         <a class="brand" href="${hrefToOutRel("index.html", page.outRel)}" aria-label="${productName} docs home">
           <span class="mark" aria-hidden="true"></span>
-          <span><strong>${escapeHtml(productName)}</strong><small>askoracle.dev</small></span>
+          <span><strong>${escapeHtml(productName)}</strong><small>askoracle.sh</small></span>
         </a>
         ${themeToggleHtml()}
       </div>
