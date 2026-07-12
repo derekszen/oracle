@@ -185,6 +185,7 @@ export async function performSessionRun({
           config: browserConfig,
           runtime: result.runtime,
           archive: result.archive,
+          pin: result.pin,
           modelSelection: result.modelSelection,
           thinkingSelection: result.thinkingSelection,
           warnings: browserWarnings.length > 0 ? browserWarnings : undefined,

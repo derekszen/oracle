@@ -26,6 +26,7 @@ const ASSISTANT_POLL_TIMEOUT_ERROR = "assistant-response-watchdog-timeout";
 const STOP_CONTROL_SELECTOR = STOP_BUTTON_SELECTORS.join(", ");
 // Still used by the in-page settle heuristic's length buckets (see buildResponseObserverExpression).
 const MIN_CONFIDENT_ANSWER_LENGTH = 16;
+export type AssistantCompletionMode = "strict" | "scheduled-task";
 
 function readPositiveIntEnv(name: string, fallback: number): number {
   const raw = Number(process.env[name]);
@@ -116,6 +117,21 @@ export function classifyTurnTerminal(
       stableMs >= config.minStableMs;
   }
   return { state: next, terminal };
+}
+
+export function isScheduledTaskConfirmationTerminal(
+  state: TerminalGateState,
+  sample: TerminalSample,
+  config: TerminalGateConfig,
+): boolean {
+  return (
+    state.seen &&
+    state.lastKey === sample.contentKey &&
+    !sample.stopVisible &&
+    !sample.strongThinkingActive &&
+    sample.len > 0 &&
+    sample.now - state.lastChangeAt >= config.minStableMs
+  );
 }
 const THINKING_STATUS_LABELS = [
   "thinking",
@@ -248,6 +264,7 @@ export async function waitForAssistantResponse(
   logger: BrowserLogger,
   minTurnIndex?: number,
   expectedConversationId?: string,
+  completionMode: AssistantCompletionMode = "strict",
 ): Promise<{
   text: string;
   html?: string;
@@ -283,6 +300,7 @@ export async function waitForAssistantResponse(
     minTurnIndex,
     expectedConversationId,
     pollerAbort.signal,
+    completionMode,
   ).then(
     (value) => ({ kind: "poll" as const, value }),
     (error) => {
@@ -332,6 +350,7 @@ export async function waitForAssistantResponse(
           logger,
           minTurnIndex,
           expectedConversationId,
+          completionMode,
         );
         if (recovered) {
           return recovered;
@@ -359,6 +378,7 @@ export async function waitForAssistantResponse(
         logger,
         minTurnIndex,
         expectedConversationId,
+        completionMode,
       );
       if (recovered) {
         return recovered;
@@ -406,6 +426,8 @@ export async function waitForAssistantResponse(
       remainingMs,
       minTurnIndex,
       expectedConversationId,
+      undefined,
+      completionMode,
     );
     if (completed) {
       return completed;
@@ -516,6 +538,7 @@ async function recoverAssistantResponse(
   logger: BrowserLogger,
   minTurnIndex?: number,
   expectedConversationId?: string,
+  completionMode: AssistantCompletionMode = "strict",
 ): Promise<{
   text: string;
   html?: string;
@@ -545,6 +568,8 @@ async function recoverAssistantResponse(
         remainingMs,
         minTurnIndex,
         expectedConversationId,
+        undefined,
+        completionMode,
       );
       if (confirmed) {
         logger("Recovered and confirmed assistant response via polling fallback");
@@ -691,6 +716,7 @@ async function pollAssistantCompletion(
   minTurnIndex?: number,
   expectedConversationId?: string,
   abortSignal?: AbortSignal,
+  completionMode: AssistantCompletionMode = "strict",
 ): Promise<{
   text: string;
   html?: string;
@@ -715,22 +741,20 @@ async function pollAssistantCompletion(
         isCompletionVisible(Runtime, normalized.meta, minTurnIndex),
         readThinkingActivity(Runtime),
       ]);
-      const decision = classifyTurnTerminal(
-        gate,
-        {
-          now: Date.now(),
-          len: normalized.text.length,
-          // Fingerprint = turn/message identity + the full text, so a same-length rewrite, a
-          // shorter final answer replacing a longer preamble, or a new turn all count as change.
-          contentKey: `${normalized.meta.messageId ?? normalized.meta.turnId ?? ""}::${normalized.text}`,
-          stopVisible,
-          barVisible,
-          strongThinkingActive: thinkingActivity.strong,
-        },
-        TERMINAL_GATE_CONFIG,
-      );
+      const sample: TerminalSample = {
+        now: Date.now(),
+        len: normalized.text.length,
+        contentKey: `${normalized.meta.messageId ?? normalized.meta.turnId ?? ""}::${normalized.text}`,
+        stopVisible,
+        barVisible,
+        strongThinkingActive: thinkingActivity.strong,
+      };
+      const scheduledTaskTerminal =
+        completionMode === "scheduled-task" &&
+        isScheduledTaskConfirmationTerminal(gate, sample, TERMINAL_GATE_CONFIG);
+      const decision = classifyTurnTerminal(gate, sample, TERMINAL_GATE_CONFIG);
       gate = decision.state;
-      if (decision.terminal) {
+      if (decision.terminal || scheduledTaskTerminal) {
         return normalized;
       }
     } else {
