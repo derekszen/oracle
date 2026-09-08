@@ -1,5 +1,7 @@
 # Changelog
 
+## Unreleased
+
 ## 0.20.0 - 2026-09-07
 
 **Highlights:** GPT-6 Astra API and ChatGPT Latest support, explicit Web Search, and safe cleanup after browser recovery.
