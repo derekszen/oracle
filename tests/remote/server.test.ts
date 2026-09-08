@@ -1275,6 +1275,12 @@ describe("bridged result sanitization", () => {
                 capturedAt: "2026-08-18T00:00:00.000Z",
               },
               tabUrl: "https://chatgpt.com/c/abc-123",
+              researchPlan: {
+                title: "Compare public release schedules",
+                steps: ["Read official sources", "Compare support dates"],
+                phase: "researching",
+                capturedAt: "2026-09-08T00:00:00.000Z",
+              },
               conversationId: "abc-123",
               promptSubmitted: true,
               chromePid: 4242,
@@ -1300,6 +1306,11 @@ describe("bridged result sanitization", () => {
         strictFailClosed: true,
       });
       expect(result.modelSelection?.resolvedLabel).toBe("GPT-5.6 Sol");
+      expect(result.researchPlan).toMatchObject({
+        title: "Compare public release schedules",
+        steps: ["Read official sources", "Compare support dates"],
+        phase: "researching",
+      });
       expect(result.conversationId).toBe("abc-123");
       expect(result.tabUrl).toBe("https://chatgpt.com/c/abc-123");
 

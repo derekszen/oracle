@@ -15,6 +15,16 @@ export type BrowserModelStrategy = "select" | "current" | "ignore";
 export type BrowserResearchMode = "off" | "search" | "deep";
 export type BrowserArchiveMode = "auto" | "always" | "never";
 
+export interface BrowserResearchPlanMetadata {
+  title: string;
+  steps: string[];
+  /** Whether ChatGPT is still presenting the plan or has started executing it. */
+  phase: "planning" | "researching";
+  /** Visible plan action, for example Edit or Update. */
+  actionText?: string;
+  capturedAt: string;
+}
+
 export type BrowserLogger = ((message: string) => void) & {
   verbose?: boolean;
   sessionLog?: (message: string) => void;
@@ -213,6 +223,7 @@ export interface BrowserRunResult {
   tabUrl?: string;
   conversationId?: string;
   promptSubmitted?: boolean;
+  researchPlan?: BrowserResearchPlanMetadata;
   controllerPid?: number;
 }
 

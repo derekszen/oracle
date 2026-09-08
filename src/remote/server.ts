@@ -1016,6 +1016,7 @@ function sanitizeResult(
     answerChars: result.answerChars,
     modelSelection: result.modelSelection,
     thinkingSelection: result.thinkingSelection,
+    researchPlan: result.researchPlan,
     archive: result.archive,
     tabUrl: result.tabUrl,
     conversationId: result.conversationId,

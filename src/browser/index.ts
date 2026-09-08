@@ -13,6 +13,7 @@ import type {
   BrowserLogger,
   ChromeClient,
   BrowserAttachment,
+  BrowserResearchPlanMetadata,
   ResolvedBrowserConfig,
   BrowserArchiveResult,
 } from "./types.js";
@@ -1136,6 +1137,7 @@ async function runBrowserModeInternal(
   const targetClaimId = randomUUID();
   let modelSelectionEvidence: BrowserModelSelectionEvidence | undefined;
   let thinkingSelectionEvidence: BrowserThinkingSelectionEvidence | undefined;
+  let researchPlan: BrowserResearchPlanMetadata | undefined;
   let tabLease: BrowserTabLease | null = null;
   let conversationUrlMonitor: ConversationUrlMonitor | null = null;
   const emitRuntimeHint = async (): Promise<void> => {
@@ -1154,6 +1156,7 @@ async function runBrowserModeInternal(
       ownedRecoveryTarget,
       userDataDir,
       controllerPid: process.pid,
+      researchPlan,
     };
     try {
       await runtimeHintCb?.(hint, modelSelectionEvidence);
@@ -1462,6 +1465,7 @@ async function runBrowserModeInternal(
                 promptSubmitted,
                 ownedRecoveryTarget,
                 controllerPid: process.pid,
+                researchPlan,
               },
             }),
           );
@@ -1953,7 +1957,19 @@ async function runBrowserModeInternal(
     }
     const imageArtifactMinTurnIndex = baselineTurns;
     if (deepResearch) {
-      await raceWithDisconnect(waitForResearchPlanAutoConfirm(Runtime, logger));
+      await raceWithDisconnect(
+        waitForResearchPlanAutoConfirm(Runtime, logger, undefined, {
+          Page,
+          client,
+          ignoredTargetKeys: deepResearchTargetKeys,
+          targetBaselineCaptured: deepResearchTargetBaselineCaptured,
+          minTurnIndex: baselineTurns,
+          onPlan: async (plan) => {
+            researchPlan = plan;
+            await emitRuntimeHint();
+          },
+        }),
+      );
       const researchResult = await raceWithDisconnect(
         waitForDeepResearchCompletion(
           Runtime,
@@ -2024,6 +2040,7 @@ async function runBrowserModeInternal(
         promptSubmitted,
         ownedRecoveryTarget,
         controllerPid: process.pid,
+        researchPlan,
       };
     }
     // Helper to normalize text for echo detection (collapse whitespace, lowercase)
@@ -2657,6 +2674,7 @@ async function runBrowserModeInternal(
           promptSubmitted,
           ownedRecoveryTarget,
           controllerPid: process.pid,
+          researchPlan,
         },
       },
       normalizedError,
@@ -3176,6 +3194,7 @@ async function runRemoteBrowserMode(
   const targetClaimId = randomUUID();
   let modelSelectionEvidence: BrowserModelSelectionEvidence | undefined;
   let thinkingSelectionEvidence: BrowserThinkingSelectionEvidence | undefined;
+  let researchPlan: BrowserResearchPlanMetadata | undefined;
   let attachedExistingTab = false;
   let ownsTarget = true;
   let conversationUrlMonitor: ConversationUrlMonitor | null = null;
@@ -3195,6 +3214,7 @@ async function runRemoteBrowserMode(
           promptSubmitted,
           ownedRecoveryTarget,
           controllerPid: process.pid,
+          researchPlan,
         },
         modelSelectionEvidence,
       );
@@ -3552,7 +3572,17 @@ async function runRemoteBrowserMode(
     deepResearchTargetBaselineCaptured = submission.deepResearchTargetBaselineCaptured ?? false;
     const imageArtifactMinTurnIndex = baselineTurns;
     if (deepResearch) {
-      await waitForResearchPlanAutoConfirm(Runtime, logger);
+      await waitForResearchPlanAutoConfirm(Runtime, logger, undefined, {
+        Page,
+        client,
+        ignoredTargetKeys: deepResearchTargetKeys,
+        targetBaselineCaptured: deepResearchTargetBaselineCaptured,
+        minTurnIndex: baselineTurns,
+        onPlan: async (plan) => {
+          researchPlan = plan;
+          await emitRuntimeHint();
+        },
+      });
       const researchResult = await waitForDeepResearchCompletion(
         Runtime,
         logger,
@@ -3619,6 +3649,7 @@ async function runRemoteBrowserMode(
         promptSubmitted,
         ownedRecoveryTarget,
         controllerPid: process.pid,
+        researchPlan,
       };
     }
     // Helper to normalize text for echo detection (collapse whitespace, lowercase)
@@ -4140,6 +4171,7 @@ async function runRemoteBrowserMode(
         promptSubmitted,
         ownedRecoveryTarget,
         controllerPid: process.pid,
+        researchPlan,
       },
     });
   } finally {
