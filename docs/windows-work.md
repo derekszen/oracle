@@ -14,6 +14,8 @@ Read this file whenever you're working from Windows and add new findings so the 
 
 Future Windows gotchas belong here. Update this doc when you learn something new.
 
+- A fresh Windows worktree with `core.autocrlf=true` can make `oxfmt --check` flag otherwise unchanged files. Use LF checkout contents for validation and inspect the staged diff to keep checkout-only line-ending changes out of the PR.
+
 - ChatGPT sidebar/history labels can include phrases like "Login setup instruction"; login probes must match exact auth CTAs, not any visible text starting with login, or manual-login automation loops forever before typing.
 - For Windows PR refreshes, use `git -c core.autocrlf=false` for merge and review commands; preserve untracked `.codex-tmp/` handoff state and leave it out of commits.
 - ChatGPT's composer plus button can sit close to Work suggestions. A coordinate click observed on Windows entered a new `/c/WEB:...` Work task even though the attachment tile later appeared. Activate only `#composer-plus-btn` / `button[data-testid="composer-plus-btn"]`, then fail closed if the conversation id changes or Work becomes selected before file assignment. Preserve that page identity through upload and check it again at final dispatch. After upload, close an expanded plus menu and keyboard-activate only the exact `button[data-testid="send-button"]`; a trusted coordinate click was observed dismissing UI without committing the staged attachment prompt.

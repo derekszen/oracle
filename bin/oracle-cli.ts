@@ -43,6 +43,7 @@ import {
   dedupePathInputs,
 } from "../src/cli/options.js";
 import { copyToClipboard } from "../src/cli/clipboard.js";
+import { isGpt6ProAlias } from "../src/cli/browserConfig.js";
 import { buildMarkdownBundle } from "../src/cli/markdownBundle.js";
 import { shouldDetachSession, stopDetachedWorker } from "../src/cli/detach.js";
 import { launchDetachedSession } from "../src/cli/detachedSession.js";
@@ -449,19 +450,15 @@ program
       .default([]),
   )
   .addOption(
-    new Option("--reasoning-effort <effort>", "Reasoning effort for GPT-5.6 API models.").choices([
-      "none",
-      "low",
-      "medium",
-      "high",
-      "xhigh",
-      "max",
-    ]),
+    new Option(
+      "--reasoning-effort <effort>",
+      "Reasoning effort for GPT-6 Astra and GPT-5.6 API models (Astra requires low or higher).",
+    ).choices(["none", "low", "medium", "high", "xhigh", "max"]),
   )
   .addOption(
     new Option(
       "--reasoning-mode <mode>",
-      'Responses API reasoning execution mode for GPT-5.6 models ("standard" or "pro").',
+      'Responses API reasoning execution mode for GPT-6 Astra and GPT-5.6 models ("standard" or "pro").',
     ).choices(["standard", "pro"]),
   )
   .addOption(
@@ -1867,9 +1864,19 @@ async function runRootCommand(options: CliOptions): Promise<void> {
   }
 
   const providerMode = resolveApiProviderMode(options);
-  const engineModels = multiModelProvided
-    ? Array.from(new Set(options.models!.map((entry) => resolveApiModel(entry))))
-    : [resolveApiModel(normalizeModelOption(options.model) || DEFAULT_MODEL)];
+  // Engine discovery must not apply API-only validation to browser aliases.
+  const engineModelInputs = multiModelProvided
+    ? options.models!
+    : [normalizeModelOption(options.model) || DEFAULT_MODEL];
+  const engineModels = Array.from(
+    new Set(
+      engineModelInputs.map((entry) =>
+        isGpt6ProAlias(entry) && !options.route && !options.preflight
+          ? ("gpt-6-pro" as ModelName)
+          : resolveApiModel(entry),
+      ),
+    ),
+  );
   if (options.route || options.preflight) {
     const routeAzureEndpoint = firstNonEmpty(
       options.azureEndpoint,

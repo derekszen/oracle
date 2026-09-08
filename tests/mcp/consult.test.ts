@@ -247,6 +247,36 @@ describe("summarizeModelRunsForConsult", () => {
     expect(summarizedImages?.[0]).not.toHaveProperty("finalUrl");
   });
 
+  test.each(["current", "ignore"] as const)(
+    "preserves Astra browser strategy %s from saved config or input",
+    (modelStrategy) => {
+      for (const explicit of [false, true]) {
+        const config = buildConsultBrowserConfig({
+          userConfig: { browser: { modelStrategy: explicit ? "select" : modelStrategy } },
+          env: {},
+          runModel: "gpt-6-astra",
+          browserModelStrategy: explicit ? modelStrategy : undefined,
+        });
+        expect(config.modelStrategy).toBe(modelStrategy);
+        expect(config.thinkingTime).toBeUndefined();
+      }
+    },
+  );
+
+  test("selects Latest through MCP including explicit strategy overrides", () => {
+    expect(
+      buildConsultBrowserConfig({ userConfig: {}, env: {}, runModel: "gpt-6-astra" }),
+    ).toMatchObject({ desiredModel: "Latest" });
+    expect(
+      buildConsultBrowserConfig({
+        userConfig: { browser: { modelStrategy: "current" } },
+        env: {},
+        runModel: "gpt-6-astra",
+        browserModelStrategy: "select",
+      }),
+    ).toMatchObject({ desiredModel: "Latest", modelStrategy: "select" });
+  });
+
   test("merges browser defaults from config for consult runs", () => {
     const config = buildConsultBrowserConfig({
       userConfig: {
@@ -334,6 +364,20 @@ describe("summarizeModelRunsForConsult", () => {
 
     expect(config).toMatchObject({
       desiredModel: "GPT-5.6 Sol",
+      thinkingTime: "pro",
+    });
+  });
+
+  test("supports gpt-6-pro through MCP browser consult config", () => {
+    const config = buildConsultBrowserConfig({
+      userConfig: {},
+      env: {},
+      runModel: "gpt-6-pro",
+      inputModel: "gpt-6-pro",
+    });
+
+    expect(config).toMatchObject({
+      desiredModel: "Latest",
       thinkingTime: "pro",
     });
   });

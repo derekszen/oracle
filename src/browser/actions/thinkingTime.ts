@@ -299,6 +299,12 @@ function buildThinkingTimeExpression(
   const targetIsGpt56ModelLiteral = JSON.stringify(
     /(?:^|[^0-9])5[._ -]6(?:[^0-9]|$)/i.test(desiredModel ?? ""),
   );
+  // Astra resolves the gpt-6-pro request to this exact model-picker alias. Keep
+  // this deliberately narrow: a generic unknown model must not claim its
+  // version-prefixed effort pill whose ownership we cannot establish.
+  const targetIsAstraLatestLiteral = JSON.stringify(
+    (desiredModel ?? "").trim().toLowerCase() === "latest",
+  );
 
   return `(async () => {
     ${buildClickDispatcher()}
@@ -309,13 +315,14 @@ function buildThinkingTimeExpression(
     const TARGET_LEVEL = ${targetLevelLiteral};
     const TARGET_MODEL_KIND = ${targetModelKindLiteral};
     const TARGET_IS_GPT56_MODEL = ${targetIsGpt56ModelLiteral};
+    const TARGET_IS_ASTRA_LATEST = ${targetIsAstraLatestLiteral};
 
     // Multilingual matchers: English level token + observed localized variants.
     const LEVEL_TOKENS = {
       light: ['light', 'instant', 'sofort', 'leicht', '最速', '轻', '极速', '즉시'],
       standard: ['standard', 'medium', 'mittel', '中程度', '标准', '中', '중간'],
       extended: ['extended', 'high', 'hoch', 'erweitert', '高い', '扩展', '深度', '加强', '高', '높음'],
-      'extra-high': ['extra high', 'sehr hoch', '非常に高い', '极高', '매우 높음'],
+      'extra-high': ['extra high', 'sehr hoch', '非常に高い', '極高', '极高', '매우 높음'],
       heavy: ['heavy', 'schwer', '重度', '加重'],
     };
     // Pro is a tier you can request, but it is also a MODEL name, so it must never
@@ -324,6 +331,29 @@ function buildThinkingTimeExpression(
     // "Instant"/"Pro" would look like a tier list. Keep it to target matching only.
     const TARGET_LEVEL_TOKENS = { ...LEVEL_TOKENS, pro: ['pro'] };
     const targetTokens = TARGET_LEVEL_TOKENS[TARGET_LEVEL] || [TARGET_LEVEL];
+    const normalizeAstraLabel = (value) =>
+      String(value ?? '')
+        .normalize('NFC')
+        .toLowerCase()
+        .split(String.fromCharCode(9)).join(' ')
+        .split(String.fromCharCode(10)).join(' ')
+        .split(String.fromCharCode(13)).join(' ')
+        .split(String.fromCharCode(12)).join(' ')
+        .split(' ').filter(Boolean).join(' ');
+    const isAstraLatestEffortPill = (label) =>
+      TARGET_IS_ASTRA_LATEST &&
+      Object.values(TARGET_LEVEL_TOKENS).some((tokens) =>
+        tokens.some((token) => {
+          // Do not use the generic matcher here: ownership needs an exact
+          // version prefix plus a known localized tier, not token containment.
+          const tier = normalizeAstraLabel(token);
+          const observed = normalizeAstraLabel(label);
+          return observed === '6 ' + tier || observed === '6' + tier;
+        }),
+      );
+    const isSolModelPillForLatest = (label) =>
+      TARGET_IS_ASTRA_LATEST &&
+      ['5.6 pro', '5.6pro', '5 6 pro'].includes(normalizeAstraLabel(label));
 
     const INITIAL_WAIT_MS = 150;
     const STEP_WAIT_MS = 200;
@@ -1170,6 +1200,9 @@ function buildThinkingTimeExpression(
           if (seen.has(button) || !isVisible(button)) continue;
           seen.add(button);
           if (button.getAttribute?.('data-testid') === 'model-switcher-dropdown-button') continue;
+          // A 5.6 Pro model pill is not Astra Latest's 6-prefixed effort owner.
+          // Keep this rejection ahead of the generic compatibility matcher.
+          if (isSolModelPillForLatest(button.textContent ?? '')) continue;
           const label = normalize(
             (button.getAttribute?.('aria-label') ?? '') + ' ' +
             (button.getAttribute?.('data-testid') ?? '') + ' ' +
@@ -1179,6 +1212,11 @@ function buildThinkingTimeExpression(
             (TARGET_MODEL_KIND === 'pro' && hasToken(label, 'pro') && !hasToken(label, 'thinking')) ||
             (TARGET_MODEL_KIND === 'thinking' && hasToken(label, 'thinking') && !hasToken(label, 'pro')) ||
             (!TARGET_MODEL_KIND && hasToken(label, 'thinking')) ||
+            // Astra Latest prefixes a supported effort label with "6" (for
+            // example, "6 Pro" or textContent-concatenated "6Pro"). This is
+            // recognized only for the exact Latest target; selection still
+            // requires the direct slider's leading label and numeric ARIA proof.
+            isAstraLatestEffortPill(button.textContent ?? '') ||
             (button.matches?.('button.__composer-pill') && matchesAnyEffortLevel(label))
           ) {
             return button;
@@ -1265,6 +1303,7 @@ function buildThinkingTimeExpression(
         tokens.some((token) => normalize(token) === pillLabel),
       );
       const pillNamesEffortNotModel =
+        TARGET_IS_ASTRA_LATEST ||
         TARGET_IS_GPT56_MODEL ||
         (pillIsBareEffortTier && Boolean(document.querySelector(INTELLIGENCE_MENU_SELECTOR)));
       const composerModelKind =

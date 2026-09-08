@@ -3018,6 +3018,7 @@ describe("unified Intelligence picker with Advanced -> Effort submenu", () => {
     return {
       documentStub,
       pickerContent,
+      pill,
       advancedToggle,
       effortOpener,
       modelOpener,
@@ -3105,6 +3106,16 @@ describe("unified Intelligence picker with Advanced -> Effort submenu", () => {
     return { ...dom, thumb, announcement, control, simple, keys };
   }
 
+  it("selects Pro from the observed Japanese 極高 tier for Astra Latest", async () => {
+    const dom = buildDirectSlider(3, ["Instant", "Medium", "High", "極高", "Pro"]);
+    dom.announcement.textContent = "極高、5件中4件目。";
+    await expect(run(dom.documentStub, "pro", "Latest")).resolves.toEqual({
+      status: "switched",
+      label: "Pro",
+    });
+    expect(dom.keys).toEqual(["ArrowRight"]);
+  });
+
   it("selects and verifies Pro on the direct slider without an Advanced row", async () => {
     const dom = buildDirectSlider(2);
     await expect(run(dom.documentStub, "pro")).resolves.toEqual({
@@ -3123,6 +3134,39 @@ describe("unified Intelligence picker with Advanced -> Effort submenu", () => {
     });
     expect(dom.keys).toEqual([]);
   });
+
+  it("recognizes Astra Latest's exact 6-prefixed effort owner and selects Pro through the direct slider", async () => {
+    const dom = buildDirectSlider(2);
+    dom.pill.textContent = "6 High";
+
+    await expect(run(dom.documentStub, "pro", "Latest")).resolves.toEqual({
+      status: "switched",
+      label: "Pro",
+    });
+    expect(dom.keys).toEqual(["ArrowRight", "ArrowRight"]);
+  });
+
+  it("recognizes Astra Latest's Japanese 6-prefixed effort owner", async () => {
+    const dom = buildDirectSlider(3, ["最速", "中程度", "高い", "非常に高い", "Pro"]);
+    dom.pill.textContent = "6\n非常に高い";
+
+    await expect(run(dom.documentStub, "pro", "Latest")).resolves.toEqual({
+      status: "switched",
+      label: "Pro",
+    });
+    expect(dom.keys).toEqual(["ArrowRight"]);
+  });
+
+  it.each(["6未知", "5.6 Pro"])(
+    "does not claim %s as Astra Latest's effort owner",
+    async (pillText) => {
+      const dom = buildDirectSlider(2);
+      dom.pill.textContent = pillText;
+
+      expect((await run(dom.documentStub, "pro", "Latest")).status).toBe("chip-not-found");
+      expect(dom.keys).toEqual([]);
+    },
+  );
 
   it("waits for the animated keyboard owner to become visible before changing power", async () => {
     const dom = buildDirectSlider(3);
