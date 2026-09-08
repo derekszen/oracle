@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.20.0 - 2026-09-07
 
-**Highlights:** GPT-6 Astra consultations through the API and ChatGPT's Latest picker, explicit Web Search, and safe cleanup after browser recovery.
+**Highlights:** GPT-6 Astra API and ChatGPT Latest support, explicit Web Search, and safe cleanup after browser recovery.
 
 - API/browser: support GPT-6 Astra with model-specific reasoning validation, ChatGPT Latest selection, localized effort controls, and verified Pro requests; preserve browser aliases during CLI engine discovery. Thanks @oraclexing, @malvarezcastillo, @FNDEVVE, and @kiyo-e.
 - Browser: add the opt-in --browser-research search mode and MCP equivalent, verifying the English Web Search hint and staged prompt before sending, including bundled attachments; thanks @DragonFSKY.
