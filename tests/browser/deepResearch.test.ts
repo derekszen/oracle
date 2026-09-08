@@ -177,11 +177,115 @@ describe("Deep Research activation expression", () => {
     expect(expression).toContain(".__menu-item");
     expect(expression).toContain("popover");
     expect(expression).toContain("detailed report");
-    expect(expression).toContain("text === 'get a detailed report'");
-    expect(expression).toContain("text.startsWith('get a detailed report ')");
+    expect(expression).toContain("descriptionLabels");
+    expect(expression).toContain("深度研究");
+    expect(expression).toContain("获取详细报告");
+    expect(expression).toContain("添加文件");
     expect(expression).toContain('[class*="composer-pill"]');
     expect(expression).toContain("deep research");
     expect(expression).toContain("already-active");
+  });
+
+  it.each([
+    ["深度研究 获取详细报告", "深度研究", "添加文件等"],
+    ["DeepResearch", "Deep research", "Add files and more"],
+    ["Deep Research Get a detailed report", "Deep research", "Add files and more"],
+  ])("activates %s without clicking the GitHub connector", async (row, pill, plusLabel) => {
+    const expression = buildActivateDeepResearchExpressionForTest();
+    let menuOpen = false;
+    let activated = false;
+
+    class FakeEventTarget {
+      dispatchEvent(event: { type?: string }) {
+        if (event.type === "click") this.onClick();
+        return true;
+      }
+
+      onClick() {}
+    }
+
+    class FakeElement extends FakeEventTarget {
+      className = "__menu-item";
+      clickCount = 0;
+
+      constructor(
+        readonly textContent: string,
+        private readonly ariaLabel = "",
+        private readonly inPopover = false,
+        private readonly clickAction?: () => void,
+      ) {
+        super();
+      }
+
+      getAttribute(name: string) {
+        return name === "aria-label" ? this.ariaLabel : null;
+      }
+
+      getBoundingClientRect() {
+        return { left: 10, top: 20, width: 200, height: 40 };
+      }
+
+      closest(selector: string) {
+        if (selector.includes("popover")) return this.inPopover ? popover : null;
+        return this;
+      }
+
+      querySelector() {
+        return null;
+      }
+
+      querySelectorAll() {
+        return [];
+      }
+
+      scrollIntoView() {}
+
+      override onClick() {
+        this.clickCount += 1;
+        this.clickAction?.();
+      }
+    }
+
+    const popover = {};
+    const plusButton = new FakeElement("", plusLabel, false, () => {
+      menuOpen = true;
+    });
+    const githubRow = new FakeElement("GitHub 搜索和引用代码", "", true);
+    const deepResearchRow = new FakeElement(row, "", true, () => {
+      activated = true;
+    });
+    const deepResearchPill = new FakeElement(pill);
+    const menuRows = [githubRow, deepResearchRow];
+    const document = {
+      querySelector: () => null,
+      querySelectorAll: (selector: string) => {
+        if (selector.includes("composer-pill")) return activated ? [deepResearchPill] : [];
+        if (selector === '[data-testid="composer"], form, [class*="composer"]') return [];
+        if (selector === 'input, textarea, [contenteditable="true"]') return [];
+        if (selector === "button") return [plusButton];
+        if (selector.includes('[role="menuitemradio"]')) return menuOpen ? menuRows : [];
+        return [];
+      },
+    };
+    class FakeMouseEvent {
+      constructor(readonly type: string) {}
+    }
+
+    const result = (await new vm.Script(expression).runInNewContext({
+      document,
+      Element: FakeElement,
+      EventTarget: FakeEventTarget,
+      MouseEvent: FakeMouseEvent,
+      window: { getComputedStyle: () => ({ visibility: "visible", display: "block" }) },
+      setTimeout: (callback: () => void) => {
+        callback();
+        return 0;
+      },
+    })) as { status?: string };
+
+    expect(result.status).toBe("activated");
+    expect(deepResearchRow.clickCount).toBeGreaterThan(0);
+    expect(githubRow.clickCount).toBe(0);
   });
 });
 
