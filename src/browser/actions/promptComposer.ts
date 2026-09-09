@@ -49,6 +49,7 @@ export interface AttachmentReadyExpectation {
 }
 
 type AttachmentReadyInput = string | AttachmentReadyExpectation;
+export type PromptCommitMode = "conversation" | "scheduled-task";
 
 export async function submitPrompt(
   deps: {
@@ -62,6 +63,7 @@ export async function submitPrompt(
     attachmentTimeoutMs?: number | null;
     onPromptSubmitted?: () => Promise<void> | void;
     webSearch?: boolean;
+    commitMode?: PromptCommitMode;
   },
   prompt: string,
   logger: BrowserLogger,
@@ -264,11 +266,14 @@ export async function submitPrompt(
     deps?.page,
     deps?.attachmentNavigationUrl,
   );
-  if (!clicked) {
+  if (!clicked && deps.commitMode !== "scheduled-task") {
     await dispatchEnterKey(input);
     logger("Submitted prompt via Enter key");
   } else {
     logger("Activated send button");
+  }
+  if (deps.commitMode === "scheduled-task") {
+    await retryScheduledTaskSendIfNeeded(runtime, logger);
   }
   await deps.onPromptSubmitted?.();
 
@@ -280,7 +285,39 @@ export async function submitPrompt(
     commitTimeoutMs,
     logger,
     deps.baselineTurns ?? undefined,
+    deps.commitMode,
   );
+}
+
+async function retryScheduledTaskSendIfNeeded(
+  Runtime: ChromeClient["Runtime"],
+  logger?: BrowserLogger,
+): Promise<void> {
+  await delay(750);
+  const deadline = Date.now() + 5_000;
+  const expression = `(() => {
+    if (!location.pathname.startsWith('/scheduled')) return { status: 'handoff' };
+    const inputs = ${JSON.stringify(INPUT_SELECTORS)};
+    const send = ${JSON.stringify(SEND_BUTTON_SELECTORS)};
+    const read = (node) => node instanceof HTMLTextAreaElement || node instanceof HTMLInputElement
+      ? node.value ?? '' : node?.innerText ?? node?.textContent ?? '';
+    const hasPrompt = inputs.some((selector) => { const node = document.querySelector(selector); return read(node).trim().length > 0; });
+    if (!hasPrompt) return { status: 'submitted' };
+    const button = send.map((selector) => document.querySelector(selector)).find((node) => node instanceof HTMLElement && !node.hasAttribute('disabled') && node.getAttribute('aria-disabled') !== 'true');
+    if (!(button instanceof HTMLElement)) return { status: 'waiting' };
+    button.click();
+    return { status: 'clicked' };
+  })()`;
+  while (Date.now() < deadline) {
+    const { result } = await Runtime.evaluate({ expression, returnByValue: true });
+    const status = (result.value as { status?: string } | undefined)?.status;
+    if (status === "handoff" || status === "submitted") return;
+    if (status === "clicked") {
+      logger?.("Retried Scheduled task submission through the page control");
+      return;
+    }
+    await delay(100);
+  }
 }
 
 async function dispatchEnterKey(Input: ChromeClient["Input"]): Promise<void> {
@@ -1030,6 +1067,7 @@ async function verifyPromptCommitted(
   timeoutMs: number,
   logger?: BrowserLogger,
   baselineTurns?: number,
+  commitMode: PromptCommitMode = "conversation",
 ): Promise<number | null> {
   const deadline = Date.now() + timeoutMs;
   const encodedPrompt = JSON.stringify(prompt.trim());
@@ -1146,6 +1184,9 @@ async function verifyPromptCommitted(
     if (matchesPrompt && (baselineUnknown || info?.hasNewTurn)) {
       return typeof turnsCount === "number" && Number.isFinite(turnsCount) ? turnsCount : null;
     }
+    if (commitMode === "scheduled-task" && info?.composerCleared && info.inConversation) {
+      return typeof turnsCount === "number" && Number.isFinite(turnsCount) ? turnsCount : null;
+    }
     const fallbackCommit =
       info?.composerCleared &&
       Boolean(info?.hasNewTurn) &&
@@ -1221,4 +1262,5 @@ export const __test__ = {
   dismissOpenComposerPlusMenu,
   sendButtonTimeoutMs,
   verifyPromptCommitted,
+  retryScheduledTaskSendIfNeeded,
 };

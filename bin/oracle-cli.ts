@@ -149,6 +149,8 @@ interface CliOptions extends OptionValues {
   copyProfile?: string;
   browserThinkingTime?: "light" | "standard" | "extended" | "extra-high" | "pro" | "heavy";
   browserResearch?: "off" | "search" | "deep";
+  browserScheduledTask?: boolean;
+  browserPinConversation?: boolean;
   browserFollowUp?: string[];
   browserAllowCookieErrors?: boolean;
   browserAttachments?: string;
@@ -830,6 +832,8 @@ program
       "Archive completed ChatGPT browser conversations after local artifacts are saved (auto archives successful non-project one-shots only).",
     ).choices(["auto", "always", "never"]),
   )
+  .addOption(new Option("--browser-scheduled-task", "Create and verify a ChatGPT Scheduled task."))
+  .addOption(new Option("--browser-pin-conversation", "Pin and verify the resulting conversation."))
   .addOption(
     new Option(
       "--browser-follow-up <prompt>",
@@ -2197,6 +2201,15 @@ async function runRootCommand(options: CliOptions): Promise<void> {
     options.browserFollowUp?.filter((entry) => entry.trim().length > 0).length ?? 0;
   if (engine !== "browser" && browserFollowUpCount > 0) {
     throw new Error("--browser-follow-up requires --engine browser.");
+  }
+  if (options.browserScheduledTask && engine !== "browser") {
+    throw new Error("--browser-scheduled-task requires --engine browser.");
+  }
+  if (options.browserPinConversation && engine !== "browser") {
+    throw new Error("--browser-pin-conversation requires --engine browser.");
+  }
+  if (options.browserScheduledTask && browserFollowUpCount > 0) {
+    throw new Error("--browser-scheduled-task cannot be combined with --browser-follow-up.");
   }
 
   const sessionMode: SessionMode = engine === "browser" ? "browser" : "api";

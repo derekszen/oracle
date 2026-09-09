@@ -106,6 +106,8 @@ import { collectGeneratedImageArtifacts } from "./chatgptImages.js";
 import { collectChatGptFileArtifacts } from "./chatgptFiles.js";
 import { runProviderSubmissionFlow } from "./providerDomFlow.js";
 import { chatgptDomProvider } from "./providers/index.js";
+import { pinCurrentConversation } from "./actions/pinConversation.js";
+import { verifyScheduledTask } from "./actions/scheduledTask.js";
 import { resolveAttachRunningConnection } from "./attachRunning.js";
 import { connectToExistingChatGptTab } from "./liveTabs.js";
 import { captureBrowserDiagnostics } from "./domDebug.js";
@@ -1138,6 +1140,7 @@ async function runBrowserModeInternal(
   let modelSelectionEvidence: BrowserModelSelectionEvidence | undefined;
   let thinkingSelectionEvidence: BrowserThinkingSelectionEvidence | undefined;
   let researchPlan: BrowserResearchPlanMetadata | undefined;
+  let pinResult: BrowserRunResult["pin"];
   let tabLease: BrowserTabLease | null = null;
   let conversationUrlMonitor: ConversationUrlMonitor | null = null;
   const emitRuntimeHint = async (): Promise<void> => {
@@ -1873,6 +1876,7 @@ async function runBrowserModeInternal(
         attachmentNavigationUrl,
         onPromptSubmitted: markPromptSubmitted,
         webSearch: config.researchMode === "search",
+        commitMode: config.scheduledTaskMode ? "scheduled-task" : "conversation",
       };
       const deepResearchTargetBaseline =
         deepResearch && client
@@ -2416,6 +2420,10 @@ async function runBrowserModeInternal(
 
     const turns: BrowserConversationTurn[] = [];
     const initialTurn = await captureAssistantTurn(promptText, "Initial response");
+    if (config.scheduledTaskMode) {
+      await verifyScheduledTask(Page, Runtime, promptText, logger, config.timeoutMs, lastUrl);
+    }
+    if (config.pinConversation) pinResult = await pinCurrentConversation(Runtime, logger);
     turns.push(initialTurn);
     answerText = initialTurn.answerText;
     answerMarkdown = initialTurn.answerMarkdown;
@@ -2550,6 +2558,7 @@ async function runBrowserModeInternal(
       downloadableFiles: fileArtifacts.files,
       savedFiles: fileArtifacts.savedFiles,
       archive,
+      pin: pinResult,
       modelSelection: modelSelectionEvidence,
       thinkingSelection: thinkingSelectionEvidence,
       tookMs: durationMs,
@@ -3195,6 +3204,7 @@ async function runRemoteBrowserMode(
   let modelSelectionEvidence: BrowserModelSelectionEvidence | undefined;
   let thinkingSelectionEvidence: BrowserThinkingSelectionEvidence | undefined;
   let researchPlan: BrowserResearchPlanMetadata | undefined;
+  let pinResult: BrowserRunResult["pin"];
   let attachedExistingTab = false;
   let ownsTarget = true;
   let conversationUrlMonitor: ConversationUrlMonitor | null = null;
@@ -3520,6 +3530,7 @@ async function runRemoteBrowserMode(
         attachmentNavigationUrl,
         onPromptSubmitted: markPromptSubmitted,
         webSearch: config.researchMode === "search",
+        commitMode: config.scheduledTaskMode ? "scheduled-task" : "conversation",
       };
       const deepResearchTargetBaseline =
         deepResearch && client
@@ -3984,6 +3995,10 @@ async function runRemoteBrowserMode(
     const followUpPrompts = normalizeBrowserFollowUpPrompts(options.followUpPrompts);
     const turns: BrowserConversationTurn[] = [];
     const initialTurn = await captureAssistantTurn(promptText, "Initial response");
+    if (config.scheduledTaskMode) {
+      await verifyScheduledTask(Page, Runtime, promptText, logger, config.timeoutMs, lastUrl);
+    }
+    if (config.pinConversation) pinResult = await pinCurrentConversation(Runtime, logger);
     turns.push(initialTurn);
     answerText = initialTurn.answerText;
     answerMarkdown = initialTurn.answerMarkdown;
@@ -4125,6 +4140,7 @@ async function runRemoteBrowserMode(
       downloadableFiles: fileArtifacts.files,
       savedFiles: fileArtifacts.savedFiles,
       archive,
+      pin: pinResult,
       modelSelection: modelSelectionEvidence,
       thinkingSelection: thinkingSelectionEvidence,
       controllerPid: process.pid,

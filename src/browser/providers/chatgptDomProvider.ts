@@ -1,7 +1,11 @@
 import type { BrowserLogger, ChromeClient } from "../types.js";
 import type { ProviderDomAdapter, ProviderDomFlowContext } from "../providerDomFlow.js";
 import { ensurePromptReady } from "../actions/navigation.js";
-import { submitPrompt, type AttachmentReadyExpectation } from "../actions/promptComposer.js";
+import {
+  submitPrompt,
+  type AttachmentReadyExpectation,
+  type PromptCommitMode,
+} from "../actions/promptComposer.js";
 import { waitForAssistantResponse } from "../actions/assistantResponse.js";
 
 interface ChatgptDomProviderState {
@@ -18,6 +22,7 @@ interface ChatgptDomProviderState {
   committedTurns?: number | null;
   onPromptSubmitted?: () => Promise<void> | void;
   webSearch?: boolean;
+  commitMode?: PromptCommitMode;
 }
 
 function requireState(ctx: ProviderDomFlowContext): ChatgptDomProviderState {
@@ -51,6 +56,7 @@ async function submitPromptViaAdapter(ctx: ProviderDomFlowContext): Promise<void
       attachmentTimeoutMs: state.attachmentTimeoutMs ?? undefined,
       onPromptSubmitted: state.onPromptSubmitted,
       webSearch: state.webSearch,
+      commitMode: state.commitMode,
     },
     ctx.prompt,
     state.logger,
@@ -76,6 +82,8 @@ async function waitForResponse(ctx: ProviderDomFlowContext): Promise<{
     state.timeoutMs,
     state.logger,
     state.baselineTurns ?? undefined,
+    undefined,
+    state.commitMode === "scheduled-task" ? "scheduled-task" : "strict",
   );
   return {
     text: answer.text,

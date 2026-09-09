@@ -98,6 +98,8 @@ export interface BrowserFlagOptions {
   browserThinkingTime?: ThinkingTimeLevel;
   browserResearch?: BrowserResearchMode;
   browserArchive?: BrowserArchiveMode;
+  browserScheduledTask?: boolean;
+  browserPinConversation?: boolean;
   browserModelLabel?: string;
   /** Original model request before browser alias normalization. */
   browserRequestedModel?: ModelName;
@@ -194,6 +196,13 @@ export function resolveDefaultBrowserThinkingTime({
 export async function buildBrowserConfig(
   options: BrowserFlagOptions,
 ): Promise<BrowserSessionConfig> {
+  const scheduledTaskMode = options.browserScheduledTask === true;
+  if (scheduledTaskMode && options.browserResearch === "deep") {
+    throw new Error("--browser-scheduled-task cannot be combined with --browser-research deep.");
+  }
+  if (scheduledTaskMode && options.browserArchive && options.browserArchive !== "never") {
+    throw new Error("--browser-scheduled-task cannot be combined with browser archiving.");
+  }
   if (options.copyProfile && options.browserKeepBrowser) {
     throw new Error(
       "--copy-profile cannot be combined with --browser-keep-browser: the copied profile is a throwaway that is deleted after the run, so it must not be retained.",
@@ -220,8 +229,9 @@ export async function buildBrowserConfig(
   const isChatGptModel = baseModel.startsWith("gpt-") && !baseModel.includes("codex");
   const shouldUseOverride =
     !isChatGptModel && normalizedOverride.length > 0 && normalizedOverride !== baseModel;
-  const modelStrategy =
-    normalizeBrowserModelStrategy(options.browserModelStrategy) ?? DEFAULT_MODEL_STRATEGY;
+  const modelStrategy = scheduledTaskMode
+    ? "ignore"
+    : (normalizeBrowserModelStrategy(options.browserModelStrategy) ?? DEFAULT_MODEL_STRATEGY);
   const thinkingTime =
     normalizeThinkingTimeLevel(options.browserThinkingTime) ??
     resolveDefaultBrowserThinkingTime({
@@ -256,14 +266,22 @@ export async function buildBrowserConfig(
     attachRunning,
     hasInlineCookies: Boolean(inline?.cookies),
   });
-  const rawUrl = options.chatgptUrl ?? options.browserUrl;
+  const rawUrl =
+    options.chatgptUrl ??
+    options.browserUrl ??
+    (scheduledTaskMode ? "https://chatgpt.com/scheduled" : undefined);
   const url = rawUrl ? normalizeChatgptUrl(rawUrl, CHATGPT_URL) : undefined;
+  if (scheduledTaskMode && url && new URL(url).pathname.replace(/\/$/, "") !== "/scheduled") {
+    throw new Error("--browser-scheduled-task requires ChatGPT's /scheduled page.");
+  }
 
-  const desiredModel = isChatGptModel
-    ? mapModelToBrowserLabel(options.model)
-    : shouldUseOverride
-      ? desiredModelOverride
-      : mapModelToBrowserLabel(options.model);
+  const desiredModel = scheduledTaskMode
+    ? null
+    : isChatGptModel
+      ? mapModelToBrowserLabel(options.model)
+      : shouldUseOverride
+        ? desiredModelOverride
+        : mapModelToBrowserLabel(options.model);
 
   return {
     chromeProfile: options.copyProfile
@@ -358,11 +376,14 @@ export async function buildBrowserConfig(
     remoteChrome,
     browserTabRef: options.browserTab ?? undefined,
     thinkingTime,
-    researchMode:
-      options.browserResearch === "deep" || options.browserResearch === "search"
+    researchMode: scheduledTaskMode
+      ? "off"
+      : options.browserResearch === "deep" || options.browserResearch === "search"
         ? options.browserResearch
         : "off",
-    archiveConversations: options.browserArchive,
+    archiveConversations: scheduledTaskMode ? "never" : options.browserArchive,
+    scheduledTaskMode: options.browserScheduledTask === true,
+    pinConversation: options.browserPinConversation === true,
   };
 }
 

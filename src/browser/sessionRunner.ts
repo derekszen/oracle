@@ -19,7 +19,12 @@ import {
   materializeBrowserFallback,
 } from "./prompt.js";
 import { BrowserAutomationError } from "../oracle/errors.js";
-import type { BrowserArchiveResult, BrowserLogger, SavedBrowserFile } from "./types.js";
+import type {
+  BrowserArchiveResult,
+  BrowserPinResult,
+  BrowserLogger,
+  SavedBrowserFile,
+} from "./types.js";
 import {
   appendArtifacts,
   saveBrowserTranscriptArtifact,
@@ -42,6 +47,7 @@ export interface BrowserExecutionResult {
   elapsedMs: number;
   runtime: BrowserRuntimeMetadata;
   archive?: BrowserArchiveResult;
+  pin?: BrowserPinResult;
   modelSelection?: BrowserModelSelectionEvidence;
   thinkingSelection?: BrowserThinkingSelectionEvidence;
   warnings?: BrowserRunWarning[];
@@ -406,6 +412,7 @@ async function executeAssembledBrowserSession({
       controllerPid: browserResult.controllerPid ?? process.pid,
     },
     archive: browserResult.archive,
+    pin: browserResult.pin,
     modelSelection,
     thinkingSelection,
     warnings,
